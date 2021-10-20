@@ -12,6 +12,40 @@
 
 答：
 
+```c
+// 组合操作——zipWith、zip：按照信号执行时间顺序依次进行叠加，列出全部的元素。拉链式结构、元组一一对应。
+// 信号一方先结束另一方也跟着结束。
+// 注意信号A和信号B的执行顺序
+RACSignal *signalA = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+  [subscriber sendNext:@1];
+  [subscriber sendNext:@2];
+  [subscriber sendNext:@4];
+//    [subscriber sendError:[NSError new]];
+  [subscriber sendCompleted];
+  return [RACDisposable disposableWithBlock:^{
+    NSLog(@"signalA完成");
+  }];
+}];
+
+RACSignal *signalB = [RACSignal createSignal:^RACDisposable *(id<RACSubscriber> subscriber) {
+  [subscriber sendNext:@11];
+  [subscriber sendNext:@22];
+  // [subscriber sendError:[NSError new]];
+  [subscriber sendNext:@44];
+  [subscriber sendCompleted];
+  return [RACDisposable disposableWithBlock:^{
+    NSLog(@"signalB完成");
+  }];
+}];
+
+//    RACSignal *signalC = [signalA zipWith:signalB];
+//    RACSignal *signalC = [RACSignal zip:@[signalA, signalB]];
+RACSignal *signalC = [RACSignal zip:RACTuplePack(signalA, signalB)];
+[[signalC subscribeNext:^(id x) {
+  NSLog(@"subscribeNext:%@",x);
+}] dispose];
+```
+
 ##### 4、网络请求的缓存处理，NSCache原理，LRU MRU 缓存原理，SKU SPU组合算法探究
 
 答：
@@ -40,11 +74,258 @@
 
 否则，就会破坏掉`pod install` 的整个设计逻辑，造成`Podfile.lock`文件无法锁定你已经安装的库。
 
-
-
 ##### 6、手写链表是否有环？
 
 答：
+
+1. 如何判断链表是否存在环?
+2. 如何知道环的长度?
+3. 如何找出环的连接点在哪里?
+4. 带环链表的长度?
+
+解法:
+
+1. 对于问题1
+
+使用追赶的方法,设定两个指针show,fast,从头节点开始,每次分别前进1步,2步,如存在环则两者必然会相遇,如不存在环,则fast遇到null退出,并且碰撞点到头节点的距离为环中节点数n.
+
+2. 对于问题2:
+
+记录下问题1的碰撞点p,碰撞点p肯定是在环中的,从这个节点触发,一边移动一边计数再次回到这个节点就得到了环中节点数n
+
+3. 对于问题3:
+
+有定理: 碰撞点p到连接点的距离=头节点到连接点的距离,因此分别从碰撞点,头节点相同速度开始走相遇的那个点就是连接点.
+定理证明如下:
+
+设头节点到连接点的距离为x,连接点到碰撞点的距离为y,碰撞点到连接点的距离为z,环的长度为n,
+(1) 碰撞点到头节点的距离为n,则有x+y=n
+(2) 又因为环的长度为n,则有y+z=n
+(3) 由(1),(2) 可得,碰撞点p到连接点的距离=头节点到连接点的距离
+
+4. 对于问题4
+
+问题3中已经求出连接点距离头指针的长度,加上问题2中求出的环的长度,二者之和就是带环链表的长度.
+
+```python
+# 有环单链表
+
+class Node(object):
+   def __init__(self, data, next=None):
+      self.data = data
+      self.next = next
+
+
+class CircleLinklist(object):
+   def __init__(self):
+      self.head = None
+      self.length = 0
+
+   def insert(self, node):
+      if self.length == 0:
+         self.head = node
+         self.length += 1
+         return
+
+      cur = self.head
+      while cur.next:
+         cur = cur.next
+
+      cur.next = node
+      self.length += 1
+
+   def traverse(self):
+      cur = self.head
+      while cur is not None:
+         print(cur.data)
+         cur = cur.next
+
+   def judge_circle_quick_slow_pointer(self):
+      """
+      判断单链表是否有环
+      如果在某个时候,快指针追上了慢指针,那么便说明有环
+      """
+      # 快指针,每次走两个节点
+      quick = self.head
+      # 慢指针,每次走一个节点
+      slow = self.head
+
+      # 标志,判断是否有环
+      flag = False
+      # 每个指针的步数
+      count = 0
+      # 加上try-except，因为在没环的情况下，快指针会出错
+      try:
+         # 循环终止条件,如果某个节点的next为空,就说明没有环了
+         while quick.next.next is not None and slow.next is not None:
+            count += 1
+            # 排除第一次相等的情况
+            # 用后面那个条件做判断不是个好想法，万一环的起点就是head，然后节点个数又是偶数的话，不会停止了吧
+            if quick.data == slow.data and count != 1:  # quick != self.head
+               print('快指针追上慢指针时的节点的值: ',quick.data)
+               flag = True
+               break
+            # 一次跨两个节点
+            quick = quick.next.next
+            # 一次跨一个节点
+            slow = slow.next
+      except Exception as e:
+         print(e.args)
+         print('quick条件报错，说明没有环')
+      finally:
+         print('步数: ', count)
+         print('是否有环: ', flag)
+
+   def judge_circle_by_traversing(self):
+      """
+      将每个遍历过的节点保存到集合中，如果下一次遍历的节点在集合中了，就说明有环
+      这个方法很傻，但却可以得到环的点是哪个
+      快慢指针只能判断是否有环，不能得到环的起点
+      """
+      nodes = []
+      cur = self.head
+      while cur is not None:
+         if cur not in nodes:
+            nodes.append(cur)
+         else:
+            print('有环，环的值是: ', cur.data)
+            break
+         cur = cur.next
+      else:
+         print('没有环')
+
+
+if __name__ == '__main__':
+   cl = CircleLinklist()
+   nodes = []
+   for i in 'ABCDEFGHIJKLMN':
+      nodes.append(Node(i))
+   nodes[len(nodes) - 1].next = nodes[5]  # 将最后一个节点的next指向F
+
+   for node in nodes:
+      cl.insert(node)
+
+   # cl.traverse()
+
+   cl.judge_circle_quick_slow_pointer()
+   print('-' * 80)
+   cl.judge_circle_by_traversing()
+```
+
+使用快慢指针，时间复杂度O(n)，空间复杂度O(1)
+
+```c
+ bool hasCycle(ListNode *head) {
+        if(NULL == head){
+            return false;
+        }
+        ListNode *pFirst = head;
+        ListNode *pSecond = head;
+        while((NULL != pFirst->next) && (NULL != pSecond->next) && (NULL != pSecond->next->next)){
+            pFirst = pFirst->next;
+            pSecond = pSecond->next->next;
+            if(pFirst == pSecond){
+                return true;
+            }
+        }
+        return false;
+    }
+```
+
+
+
+有一个链表，我们需要判断链表中是否存在环。有环则输出true，否则输出false。
+
+输入有多行，每行为由空格分隔的两个整数m和n，m是当前结点的数据，n代表当前结点的指针域指向第n个结点。
+
+n存在四种情形：
+①为-1，代表该结点的指针域指向NULL，输入结束；
+②指向该结点之前的结点，如第3个结点的指针域指向n = 2的结点；
+③指向自己，如第3个结点的指针域指向n = 3的结点；
+④指向其直接后继结点，如第3个结点的指针域指向n = 4的结点，不能指向n = 5的结点。
+
+当输入为：
+1 2
+2 3
+3 -1
+时，代表：第1个结点的数据为1，指向第2个结点；第2个结点的数据为2，指向第3个结点；第3个结点的数据为3，指向NULL，输入结束。
+
+```c
+分析：先按正常顺序建好链表，之后遍历链表调整指向，最后再遍历判断节点是否被重复访问。
+代码：
+
+#include <iostream>
+#include<cstdio>
+#include<algorithm>
+#include<cstring>
+using namespace std;
+struct node
+{
+    int data;
+    node *next;
+    int x=0;
+} ;
+int num[1000];
+int main()
+{
+    int m,n;
+    memset(num,0,sizeof(num));
+    node *head=NULL,*p=NULL,*q=NULL;
+    int i=1;
+    while(scanf("%d%d",&m,&n)!=EOF)//先按正常顺序建立链表
+    {
+        num[i]=n;
+        i++;
+        p=new node;
+        p->data=m;
+        if(head==NULL)
+            head=p;
+        else
+            q->next=p;
+        q=p;
+        if(n==-1)
+        break;
+    }
+    //q->next=NULL;
+    i=1;
+    p=head;
+    while(p->next)//修改链表的指向
+    {
+        if(num[i]!=i+1)
+        {
+            if(num[i]==-1)
+                break;
+            q=head;
+            for(int j=1;j<num[i];j++)
+                q=q->next;
+            p->next=q;
+            break;
+        }
+        p=p->next;
+        i++;
+    }
+    p=head;
+    int flag=0;
+    while(p->next)//判断某个节点是否被重复访问
+    {
+        if(!p->x)
+            p->x=1;
+        else
+            {
+                flag=1;
+                break;
+            }
+        p=p->next;
+    }
+    if(flag)
+        cout<<"true"<<endl;
+    else
+        cout<<"false"<<endl;
+    return 0;
+}
+```
+
+
 
 ##### 7、lldb 咋调试 iOS 真机的LLVM 
 
@@ -58,6 +339,37 @@
 
 答：
 
+[NSArray copy] 浅拷贝 还是那个对象
+[NSArray mutableCopy] 深拷贝 得到NSMutableArray
+[NSMutableArray copy] 深拷贝 得到 NSArray
+[NSMutableArray mutableCopy] 深拷贝 得到 NSMutableArray
+
+```objective-c
+- (void)viewDidLoad {
+    [super viewDidLoad];
+
+    NSString *str = @"abc";
+// 1.原来是一个可变数组
+    NSMutableArray *muArray = [NSMutableArray arrayWithObjects:str, nil];//__NSArrayM
+// 2.深拷贝  得到的是一个NSArray
+    NSMutableArray *copyMutableArray = [muArray copy];//__NSArrayM
+// 3.浅拷贝  得到的是一个 NSMutableArray
+    NSMutableArray *mutablCopyMutableArray = [muArray mutableCopy];//__NSArrayM
+//    [copyMutableArray addObject:@"ppp"];
+//    [mutablCopyMutableArray addObject:@"lll"];
+// 4. 初始化一个 NSArray    
+    NSArray *array = [[NSArray alloc] initWithObjects:@"yyyy", nil];//__NSArrayI
+// 5. 浅拷贝  还是那个对象
+    NSArray *copyArray = [array copy];//__NSArrayI
+// 6. 深拷贝 得到的是 NSMutaleArray
+    NSMutableArray *mutableCopyArray = [array mutableCopy];//__NSArrayM
+    [mutableCopyArray addObject:@"oooo"];
+}
+
+```
+
+
+
 ##### 10、NSMutableArray 增删 ？
 
 答：
@@ -65,6 +377,43 @@
 ##### 11、Block 内部修改临时变量及内存变化 ？
 
 答：
+
+```objective-c
+ //Block不允许修改外部变量的值，这里所说的外部变量的值，指的是栈中指针的内存地址。__block 所起到的作用就是只要观察到该变量被 block 所持有，就将“外部变量”在栈中的内存地址放到了堆中。进而在block内部也可以修改外部变量的值;block 内部的变量会被 copy 到堆区，“block内部”打印的是堆地址，因而也就可以知道，“定义后”打印的也是堆的地址。
+//把三个16进制的内存地址转成10进制就是：
+
+//定义后前：6171559672
+//block内部：5732708296
+//定义后后：5732708296
+//中间相差438851376个字节，也就是 418.5M 的空间，因为堆地址要小于栈地址，又因为iOS中一个进程的栈区内存只有1M，Mac也只有8M，显然a已经是在堆区了。
+//a 在定义前是栈区，但只要进入了 block 区域，就变成了堆区。这才是 __block 关键字的真正作用。
+//__block 关键字修饰后，int类型也从4字节变成了32字节，这是 Foundation 框架 malloc 出来的。这也同样能证实上面的结论。（PS：居然比 NSObject alloc 出来的 16 字节要多一倍）。
+
+
+__block int a = 0;
+NSLog(@"定义前：%p", &a);         //栈区
+void (^foo)(void) = ^{
+    a = 1;
+    NSLog(@"block内部：%p", &a);    //堆区
+};
+NSLog(@"定义后：%p", &a);         //堆区
+foo();
+//修改其block值
+NSMutableString *a = [NSMutableString stringWithString:@"Tom"];
+NSLog(@"\n 定以前：------------------------------------\n\
+      a指向的堆中地址：%p；a在栈中的指针地址：%p", a, &a);               //a在栈区
+void (^foo)(void) = ^{
+    a.string = @"Jerry";
+    NSLog(@"\n block内部：------------------------------------\n\
+     a指向的堆中地址：%p；a在栈中的指针地址：%p", a, &a);               //a在栈区
+    a = [NSMutableString stringWithString:@"William"];
+};
+foo();
+NSLog(@"\n 定以后：------------------------------------\n\
+      a指向的堆中地址：%p；a在栈中的指针地址：%p", a, &a);               //a在栈区
+```
+
+
 
 ##### 12、Category添加属性？分类和扩展的区别？为什么不能直接添加属性
 
@@ -101,11 +450,11 @@
 ④类扩展不能像类别那样拥有独立的实现部分（@implementation部分），也就是说，类扩展所声明的方法必须依托对应类的实现部分来实现。
 ⑤定义在 .m 文件中的类扩展方法为私有的，定义在 .h 文件（头文件）中的类扩展方法为公有的。类扩展是在 .m 文件中声明私有方法的非常好的方式。
 
-##### 13、类是怎么被创建出来的？
+##### 13、
 
 答：
 
-##### 14、NSMutableArray 对临时变量addObject 时，临时变量内存变化 failed
+##### 14、
 
 答：
 
@@ -115,9 +464,9 @@
 
 ##### 16、NSNotification原理，如何处理对象释放问题 ？
 
-答：
+答：[通知原理解析](https://www.jianshu.com/p/e93b81fd3aa9)
 
-##### 17、Category为什么只能加方法不能加属性 ？
+##### 17、
 
 答：
 
@@ -219,7 +568,7 @@ private和final方法可以重载，但是不能被覆盖。这意味着一个�
 
 答：
 
-##### 38、谈谈 KVC 以及 KVO 的理解
+##### 38、
 
 答：
 
@@ -530,6 +879,48 @@ private和final方法可以重载，但是不能被覆盖。这意味着一个�
 ##### 111、iOS内存区域介绍一下
 
 答：
+
+#### 112、悬垂指针和野指针的区别是什么
+
+答：*悬垂指针*之前指向的是有效的地址,但是现在不是这样了,通常是那个内存地址被释放掉了. 而*野指针是*没有被正确初始化,它指向了内存中随机的位置。
+
+#### 113、flutter  事件循环
+
+答：
+
+#### 114、flutter 是单线程还是多线程
+
+答：单线程
+
+#### 115、Stream  feature  的区别
+
+答：
+
+#### 116、isolate有了解吗
+
+答：
+
+#### 117、Stateless Widget和Stateful Widget区别
+
+答：
+
+#### 118、StatefulWidget 的生命周期
+
+答：
+
+#### 119、介绍下widget、state、context
+
+答：
+
+#### 120、Widget和element和RenderObject之间的关系
+
+答：
+
+#### 121、flutter是如何实现多任务并行的，谈谈Isolate理解
+
+答：
+
+
 
 
 

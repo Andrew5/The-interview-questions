@@ -4,7 +4,7 @@
 
 答：
 
-##### 2、项目协议
+##### 2、深拷贝、浅拷贝
 
 答：
 
@@ -322,8 +322,8 @@ int main()
 
 [NSArray copy] 浅拷贝 还是那个对象
 [NSArray mutableCopy] 深拷贝 得到NSMutableArray
-[NSMutableArray copy] 深拷贝 得到 NSArray
-[NSMutableArray mutableCopy] 深拷贝 得到 NSMutableArray
+[NSMutableArray copy] 深拷贝 得到 NSArray copy对象和源对象的指针指向两片相同的内存空间
+[NSMutableArray mutableCopy] 深拷贝 得到 NSMutableArray 不增加被copy对象的引用计数且产生新的内存空间分配
 
 ```objective-c
 - (void)viewDidLoad {
@@ -348,8 +348,6 @@ int main()
 }
 
 ```
-
-
 
 ##### 10、消息转发机制
 
@@ -1070,7 +1068,7 @@ struct __CFRunLoop {
 
 CFRunLoop对外暴露的管理 Mode 接口只有下面2个:
 
-```objectivec
+```object-c
 CFRunLoopAddCommonMode(CFRunLoopRef runloop, CFStringRef modeName);
 CFRunLoopRunInMode(CFStringRef modeName, ...);
 ```
@@ -1139,6 +1137,65 @@ CFRunLoopRemoveTimer(CFRunLoopRef rl, CFRunLoopTimerRef timer, CFStringRef mode)
 
 线程和 RunLoop 之间是一一对应的，其关系是保存在一个全局的 Dictionary 里。线程刚创建时并没有 RunLoop，如果你不主动获取，那它一直都不会有。RunLoop 的创建是发生在第一次获取时，RunLoop 的销毁是发生在线程结束时。你只能在一个线程的内部获取其 RunLoop（主线程除外）
 
+RunLoop 的核心就是一个 mach_msg() (见上面代码的第7步)，RunLoop 调用这个函数去接收消息，如果没有别人发送 port 消息过来，内核会将线程置于等待状态。例如你在模拟器里跑起一个 iOS 的 App，然后在 App 静止时点击暂停，你会看到主线程调用栈是停留在 mach_msg_trap() 这个地方。
+
+系统默认注册了5个Mode:
+1. kCFRunLoopDefaultMode: App的默认 Mode，通常主线程是在这个 Mode 下运行的。
+2. UITrackingRunLoopMode: 界面跟踪 Mode，用于 ScrollView 追踪触摸滑动，保证界面滑动时不受其他 Mode 影响。
+3. UIInitializationRunLoopMode: 在刚启动 App 时第进入的第一个 Mode，启动完成后就不再使用。
+4: GSEventReceiveRunLoopMode: 接受系统事件的内部 Mode，通常用不到。
+5: kCFRunLoopCommonModes: 这是一个占位的 Mode，没有实际作用。
+
+当 RunLoop 进行回调时，一般都是通过一个很长的函数调用出去 (call out), 当你在你的代码中下断点调试时，通常能在调用栈上看到这些函数。下面是这几个函数的整理版本，如果你在调用栈中看到这些长函数名，在这里查找一下就能定位到具体的调用地点了
+
+```objective-c
+{
+    /// 1. 通知Observers，即将进入RunLoop
+    /// 此处有Observer会创建AutoreleasePool: _objc_autoreleasePoolPush();
+    __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopEntry);
+    do {
+ 
+        /// 2. 通知 Observers: 即将触发 Timer 回调。
+        __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopBeforeTimers);
+        /// 3. 通知 Observers: 即将触发 Source (非基于port的,Source0) 回调。
+        __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopBeforeSources);
+        __CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__(block);
+ 
+        /// 4. 触发 Source0 (非基于port的) 回调。
+        __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE0_PERFORM_FUNCTION__(source0);
+        __CFRUNLOOP_IS_CALLING_OUT_TO_A_BLOCK__(block);
+ 
+        /// 6. 通知Observers，即将进入休眠
+        /// 此处有Observer释放并新建AutoreleasePool: _objc_autoreleasePoolPop(); _objc_autoreleasePoolPush();
+        __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopBeforeWaiting);
+ 
+        /// 7. sleep to wait msg.
+        mach_msg() -> mach_msg_trap();
+        
+ 
+        /// 8. 通知Observers，线程被唤醒
+        __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopAfterWaiting);
+ 
+        /// 9. 如果是被Timer唤醒的，回调Timer
+        __CFRUNLOOP_IS_CALLING_OUT_TO_A_TIMER_CALLBACK_FUNCTION__(timer);
+ 
+        /// 9. 如果是被dispatch唤醒的，执行所有调用 dispatch_async 等方法放入main queue 的 block
+        __CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__(dispatched_block);
+ 
+        /// 9. 如果如果Runloop是被 Source1 (基于port的) 的事件唤醒了，处理这个事件
+        __CFRUNLOOP_IS_CALLING_OUT_TO_A_SOURCE1_PERFORM_FUNCTION__(source1);
+ 
+ 
+    } while (...);
+ 
+    /// 10. 通知Observers，即将退出RunLoop
+    /// 此处有Observer释放AutoreleasePool: _objc_autoreleasePoolPop();
+    __CFRUNLOOP_IS_CALLING_OUT_TO_AN_OBSERVER_CALLBACK_FUNCTION__(kCFRunLoopExit);
+}
+```
+
+https://blog.ibireme.com/2015/05/18/runloop/#more-41710
+
 ##### 19、sdwebimage图片缓存框架设计 ？
 
 答：
@@ -1204,6 +1261,20 @@ Apple使用了isa混写（isa-swizzling）来实现KVO。当观察对象A时，K
 2、子类setter方法剖析：KVO的键值观察通知依赖与NSObject的两个方法：willChangeValueForKey:和didChangeValueForKey:，在存取数值的前后分别调用2个方法：
 被观察属性发生改变之前，willChangeValueForkey:被调用，通知系统该keyPath的属性值即将变更；当改变发生后，didChangeValueForkey:被调用，通知系统该keyPath的属性值已经变更；之后，observeValueForKey:ofObject:context:也会被调用。且重写观察属性的setter方法这种继承方式的注入是在运行时而不是编译时实现的。
 
+KVO方法列表中包含：
+setValue
+class-
+dealloc
+_isKVOA-
+self.p isa addobserve 指向NSKVONotifying_A 动态生成这个子类
+self.p isa removeobserve 指向A 类
+临时帮我们实现KVO 默默付出 依靠setValue方法 成员变量并没有set方法 
+watchpoint set variable self->p>_name 系统set方法内部调用willChangeValueForkey、didChangeValueForkey实现KVO
+监听成员变量不会执行set方法
+didChangeValueForkey 调用nitifyforkey了
+
+
+
 ##### 27、KVC的实现原理？
 
 答：俗称“键值编码”，通过一个key来访问某个属性；一种间接访问对象属性的机制，甚至可以通过KVC来访问对象的私有属性！修改textField的placeholder也是通过KVC修改的，KVC对多种数据类型的支持，KVC在某种程度上提供了替代存取方法（访问器方法）的方案，不过存取方法终究是个好东西，以至于只要有可能，KVC也尽可能先尝试使用存取方法访问属性。当使用KVC访问属性时，它内部其实做了很多事：
@@ -1252,7 +1323,7 @@ private和final方法可以重载，但是不能被覆盖。这意味着一个�
 
 答：
 
-##### 33、讲讲你对atomic & nonatomic的理解
+##### 33、讲讲你对atomic & nonatomic的理解,@dynamic VS @synthesize
 
 答：nonatomic：非原子操作，决定编译器生成的setter getter是否是原子操作,不会为setter方法加锁。系统自动生成的 getter/setter 方法不一样。如果自己写 getter/setter，那 atomic/nonatomic/retain/assign/copy 这些关键字只起提示作用，写不写都一样。线程不安全,如有两个线程访问同一个属性，会出现无法预料的结果.
 
@@ -1308,14 +1379,16 @@ if (property != newValue) {
     }
 }
 // atomic 会加一个锁来保障线程安全，并且引用计数会 +1，来向调用者保证这个对象会一直存在。假如不这样做，如有另一个线程调 setter，可能会出现线程问题，导致引用计数降到0，原来那个对象就会被释放掉；
-
 ```
+
+@synthesize的语义：如果没有手动实现setter和getter方法，编译器会自动添加这两个方法。【强调合成】
+@dynamic的语义：告知编译器,属性的setter与getter方法由自己实现，不需要自动生成。【对于readonly的属性只需要提供geter】;当没有用@dynamic修饰属性的时候，编译器默认是实现了getter和setter方法。还顺便插入了实例变量
 
 ##### 34、被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
 
 答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。
 
-__weak 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁。
+__weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。
 
 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。
 假设变量obj附加strong修饰符且对象被赋值。
@@ -1333,7 +1406,7 @@ objc_destroyWeak(&obj1);
 id obj1;
 obj1 = 0;
 objc_storeWeak(&obj1, obj);
-objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有__weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。
+objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。
 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。
 在变量作用域结束时通过 objc_destroyWeak函数释放该变量：
 / 编译器的模拟代码 /
@@ -1375,7 +1448,7 @@ obj=（null）
 id weak obj= [[NSObject alloc] init];
 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢?
 id unsafe_unretained obj=[[NSObject alloc] init];
-与_weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告：
+与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告：
 Assigning retained object to unsafe_unretained variable; object will be released after assignment
 该源代码通过编译器转换为以下形式。
 /编译器的模拟代码/
@@ -1411,7 +1484,7 @@ weak 的实现原理可以概括一下三步：
 1、   1、调用objc_release
 2、   2、因为对象的引用计数为0，所以执行dealloc
 3、   3、在dealloc中，调用了objc_rootDealloc函数
-4、   4、在_objc_rootDealloc中，调用了object_dispose函数
+4、   4、在objc_rootDealloc中，调用了object_dispose函数
 5、   5、调用objc_destructInstance
 6、   6、最后调用objc_clear_deallocating,详细过程如下：
 7、     a. 从weak表中获取废弃对象的地址为键值的记录
@@ -1421,7 +1494,8 @@ weak 的实现原理可以概括一下三步：
 
 ##### 35、block 用什么修饰？strong 可以？
 
-答：
+答：block的本质是oc对象，可以通过获取class得知最终继承自NSObiect。block分为全局block保存在数据区，栈block保存在栈区，堆block保存在堆区。block如果捕获了自动变量就是栈block，但是在arc环境下系统会对栈block进行copy操作，拷贝到堆区。在mrc下就是栈block，需要手动调用 copy操作拷贝到栈区。block要想修改变量就需要使用block。用block修饰的变量会被包装成对象。编译成c++文件后可以查看。对象类型如果也用block修饰也会被包装成对象。在编译后的结构体中会持有被修饰的变量。如果是强类型结构体中也是强类型，如果是弱类型结构体中也是弱类型。而且结构体会有两个函数指针copy和dispose。block编译后如果捕获后的变量需要block来管理内存，那么 block的desc成员中也会有copy和dispose指针。在修改被block修饰的方法中会通过forwarding指针去取，forwarding指针指向自己栈上的block如果被拷贝到堆上，栈上的forwarding会指向堆上的结构体。这样保障能够访问到正确的值。然后内存管理方面主要是copy函数和 dispose函数。循环引用的解决手段就是打破强引用改为弱引用。这个很多地方有讲，block的本质和底层可以看objective-c高级编程这本书很详细。
+
 
 ##### 36、block 为什么能够捕获外界变量？__block做了什么事？
 
@@ -1458,9 +1532,120 @@ CADisplayLink 是一个和屏幕刷新率一致的定时器（但实际实现原
 第二个 Observer 监视了两个事件： BeforeWaiting(准备进入休眠) 时调用_objc_autoreleasePoolPop() 和 _objc_autoreleasePoolPush() 释放旧的池并创建新池；Exit(即将退出Loop) 时调用 _objc_autoreleasePoolPop() 来释放自动释放池。这个 Observer 的 order 是 2147483647，优先级最低，保证其释放池子发生在其他所有回调之后。
 在主线程执行的代码，通常是写在诸如事件回调、Timer回调内的。这些回调会被 RunLoop 创建好的 AutoreleasePool 环绕着，所以不会出现内存泄漏，开发者也不必显示创建 Pool 了。
 
-##### 41、谈谈你对 FRP (函数响应式) 的理解，延伸一下 RxSwift 或者 RAC！
+##### 41、谈谈你对 FRP (函数响应式) 的理解，延伸一下 RxSwift+mvvm = RAC！
 
 答：
+
+##### 42、View的生命周期
+
+答：view的创建：loadView
+
+视图控制器(UIViewController)及其子类,无论是手写代码还是storyboard、xib肯定会调用loadView方法。其它的视图不会调用比如UIButton，UILabel等，因为他们不是视图控制器。下面是视图控制器被创建时会被调用的其它方法：
+
+Storyboard/XIB会调用的方法:
+
+​	◦	initWithCoder
+
+​	◦	awakeFromNib：此时frame还没有完成。
+
+手写代码调用的代码(必须是UIView比如自定义MDDButton : UIButton)
+
+​	◦	initWithCoder
+
+initWithFrame，创建时init会被调用此方法(可以继承UIView，做下测试)，不过frame为0.除非显示调用此方法，frame才会有值，比如：[[MDDButton alloc] initWithFrame:CGRectMake(10, 10, 100, 40)];这样显示的调用frame不为0。
+
+view采用懒加载的方式，只有用到view时才会被创建，即才会被调用 loadView ——>viewDidLoad这一系列函数
+
+<img src="/Users/jabraknight/Desktop/viewlifecycle.jpeg" alt="viewlifecycle" style="zoom:130%;" />
+
+iOS6及以后，内存警告时系统会回收ViewController的View的CALayer里的BitMap（CABackingStore类型，它的内容是直接用于渲染到屏幕，它是View消耗内存的大户）。view和calayer占的内存极少， 数量级也就在byte和kbyte之间，所以系统只回收了BitMap，但是这里所谓的回收只是给BitMap占用的内存打了一个volatile标记表明这部分内存是可能随时被其它数据占用,平时没内存警告时正在使用的内存标记为In use，完全被释放回收的标记为Not in use。概括起来也就是说：iOS6及以后的内存警告时，系统会给用于渲染视图的数据(BitMap)内存打一个volatile， ViewController的View的架子结构并不会回收，当View再次被访问时，虽然View的架子结构会用重建，但触发drawRect来渲染界面时，如果view对应的BitMap数据内存没有被占用则会被View的drawRect方法直接渲染出来且内存被标记为in use，从而这块内存又可以独享了；如果已被其它数据占用，那么BitMap必须要重建。所以可以看到整个重建过程不再是由loadView来做的，它是通过对view的访问来触发的。但是，请注意， 如果说在iOS6及以后ViewController的loadView方法只会被调用一次，这种说法是不完全准确的。因为：如果在didReceiveMemoryWarning里把ViewController的View也回收了([self.view removeFromSuperview];self.view = nil;)，那么当再次有对View访问时，loadView会被调用以进行完全最彻底的重建(想想也是，ViewController的View都没了，不调loadView来重建那怎么办呢)。
+
+viewDidLoad
+
+加载到内存完成后会调用此函数，在视图切换中，只要控制器不从内存中移除此方法就不会被调用。一般在此方法中添加一些子控件，设置视图的初始属性等等，类似初始化。
+
+viewWillAppear
+
+即将加载到窗口时调用此方法。一般在此方法做一些较为耗时的。这样就可以先显示基本的视图，呈现给用户(让用户感觉不是那么卡)，然后再显示比较耗时的。以免显示一个白屏给用户。
+
+viewDidAppear
+
+视图已经加载到窗口时调用。
+
+以下：
+
+​	◦	viewWillDisappear－视图即将消失、被覆盖或是隐藏时调用；
+
+​	◦	viewDidDisappear－视图已经消失、被覆盖或是隐藏时调用；
+
+​	◦	viewVillUnload－当内存过低时，需要释放一些不需要使用的视图时，即将释放时调用；
+
+​	◦	viewDidUnload－当内存过低，释放一些不需要的视图时调用。
+
+布局
+
+我们能看到手机上的视图都是UIView还有它的子UIView，当然不能杂乱无章的显示。要进行布局，父UIView需要布局、排列这些子UIView。UIView提供了layoutSubviews方法来处理。
+
+需要注意的是layoutSubviews方法由系统来调用，不能程序员来手动调用。可以调用setNeedsLayout方法进行标记，以保证在UI下个刷屏循环中系统会调用layoutSubviews。或者调用layoutIfNeeded直接请求系统调用layoutSubviews。
+
+layoutSubviews的被调用的时机：
+
+​	◦	addSubview会触发layoutSubviews，比如viewA add viewB，第一次添加A和B的layoutSubviews都会被调用，而第二次(viewA已经有了viewB)只调用viewB的
+
+​	◦	view的Frame变化会触发layoutSubviews
+
+​	◦	滚动一个UIScrollView会触发layoutSubviews
+
+​	◦	旋转Screen会触发父UIView上的layoutSubviews
+
+​	◦	改变transform属性时，当然frame也会变
+
+​	◦	处于key window的UIView才会调用(程序同一时间只有一个window为keyWindow，可以简单理解为显示在最前面的window为keywindow)
+
+最后总结一句话就是，有必要时才会调用，比如设置Frame值没有变化，是不会被调用的，很明显没有必要
+
+##### 1、runloop 可以做什么
+
+答：键值对方式存储对象
+
+Source1：port通信，系统事件捕捉
+
+source0只有一个回调函数 没有port
+
+阳光不锈
+
+落叶随风
+
+线程跟runloop有什么关系？
+
+答：
+
+简单讲一下runloop的组成？
+
+答：
+
+如何启动runloop？
+
+答：
+
+启动runloop的有哪些条件？几种状态？
+
+答：
+
+子线程需要保活 子线程需要吗 为什么？
+
+答：
+
+线程保活有几种方式？
+
+答：条件锁
+
+NSOperation和GCD区别
+
+答：
+
+GCD是使用C语言编写的，栅栏函数 队列问题 
+NSOperation是
 
 #### Runtime相关问题
 
@@ -1593,6 +1778,23 @@ Content-Length：表示内容长度，eg：80
 ##### 57、 有哪几种锁？各自的原理？它们之间的区别是什么？
 
 答：
+
+##### 57、 为什么说子线程不能更新UI?
+
+答：UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。
+
+两个异步线程同时做某些操作 可能发生不被预期的情况：
+同时设置一个视图的背景图片很有可能因为当前图片被释放了两次导致应用程序的crash;
+同时设置一个视图的背景颜色很有可能渲染树显示的是颜色属性A，而此时的视图的逻辑树储存的是颜色属性B；
+同时操作一个视图的属性结构比如线程A循环便利所有的子视图，而此时线程B中将某个子视图直接删除，这样不仅会导致A的错乱还可能导致应用程序的崩溃；
+将大部分视图绘制方法属性改为了线程安全，但仍强烈建议将UI操作放在主线程，原因是是属性图存在读写，不可能全部改写为线程安全。
+
+UI更新一定要在主线程实现的原因：
+系统默认是没有加锁的，多个线程被允许同时访问更新同一个UI控件，也就是所谓的Ui访问时候系统当中的UI控件都不是安全的，在多线程中变得不可控；
+规定只能在主线程访问UI，相当于是一种UI访问加的锁；
+多线程更多的是算力，而非不断的进行UI的更新，保证处理UI的事件都在串行队列中进行。
+
+
 
 #### 数据结构问题
 
@@ -1756,7 +1958,14 @@ Content-Length：表示内容长度，eg：80
 
 ##### 95、weak的原理介绍一下
 
-答：
+答：当一个对象销毁后执行dealloc 执行顺序为：
+dealloc
+objc_rootdealloc
+object_dispose
+objc_destructInstance
+objc_clear_deallocating
+weak_clear_no_lock
+根据当前对象的指针查找弱引用表，把当前对象相对应的弱引用数组进行循环将其指针顺序设置为nil
 
 ##### 96、为什么block内部对weakSelf使用strongSelf没修饰有造成强引用？
 
@@ -1798,7 +2007,7 @@ Content-Length：表示内容长度，eg：80
 
 答：
 
-##### 107、介绍一下多线程，GCD的高级用法，NSoperation重写要注意什么？
+##### 107、介绍一下多线程，GCD的高级用法，NSOperation重写要注意什么？
 
 答：实际上 RunLoop 底层也会用到 GCD 的东西，~~比如 RunLoop 是用 dispatch_source_t 实现的 Timer~~（评论中有人提醒，NSTimer 是用了 XNU 内核的 mk_timer，我也仔细调试了一下，发现 NSTimer 确实是由 mk_timer 驱动，而非 GCD 驱动的）。但同时 GCD 提供的某些接口也用到了 RunLoop， 例如 dispatch_async()。
 当调用 dispatch_async(dispatch_get_main_queue(), block) 时，libDispatch 会向主线程的 RunLoop 发送消息，RunLoop会被唤醒，并从消息中取得这个 block，并在回调 **CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE**() 里执行这个 block。但这个逻辑仅限于 dispatch 到主线程，dispatch 到其他线程仍然是由 libDispatch 处理的。
@@ -1815,6 +2024,32 @@ Content-Length：表示内容长度，eg：80
 
 答：实例对象、类对象、runtime，
 成员变量保存在class_rw_t->class_ro_t 实例对象 本质 objc结构题就是一个对象ISA从objc_object继承过来的 
+
+class_ro_t存储了当前类在编译期就已经确定的属性、方法以及遵循的协议，里面是没有分类的方法的。那些运行时添加的方法将会存储在运行时生成的class_rw_t中。
+
+```objective-c
+// 可读可写
+struct class_rw_t {
+    // Be warned that Symbolication knows the layout of this structure.
+    uint32_t flags;
+    uint32_t version;
+    const class_ro_t *ro; // 指向只读的结构体,存放类初始信息
+    /*
+     这三个都是二位数组，是可读可写的，包含了类的初始内容、分类的内容。
+     methods中，存储 method_list_t ----> method_t
+     二维数组，method_list_t --> method_t
+     这三个二位数组中的数据有一部分是从class_ro_t中合并过来的。
+     */
+    method_array_t methods; // 方法列表（类对象存放对象方法，元类对象存放类方法）
+    property_array_t properties; // 属性列表
+    protocol_array_t protocols; //协议列表
+
+    Class firstSubclass;
+    Class nextSiblingClass;
+    //...
+    }
+```
+
 rw什么时候创建的 ：运行时创建的 copy进来 可读写的 属性 方法 协议 脏内存 数据昂贵  一直存在
 ro什么时候创建的 ：编译的时候创建的 只读状态 成员变量 可移除 保持清洁的数据 永远不可改变 
 ISA 实例对象 类对象 指向元类 根元类 指向自己
@@ -1823,6 +2058,8 @@ IMP 函数指针 保存了方法的地址
 Method 参数类型描述字符串
 设计元类的原类 (复用消息通道，类方法也可以放在Class里，但发送消息时，需要增加一个参数) 是实例 类对象方法
 发送消息 消息发送 消息转发 runtime 是查找的元类 类方法
+
+> https://www.jianshu.com/p/da200b79a6af
 
 ##### 111、iOS内存区域介绍一下
 
@@ -1962,6 +2199,251 @@ https://objccn.io/issue-6-1/
 
 
 
+#### 备注：
+
+iOS必问基础问题
+
+1: 讲讲你对atomic & nonatomic的理解
+2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
+3: block 用什么修饰？strong 可以？
+4: block 为什么能够捕获外界变量？__block做了什么事？
+5: 谈谈你对事件的传递链和响应链的理解
+6: 谈谈 KVC 以及 KVO 的理解
+7: RunLoop 的作用是什么？它的内部工作机制了解么？
+8: 苹果是如何实现 autoreleasepool的？
+9: 谈谈你对 FRP (函数响应式) 的理解，延伸一下 RxSwift 或者 RAC！
+
+Runtime相关问题
+
+1: 什么是 isa，isa 的作用是什么？
+2: 一个实例对象的isa 指向什么？类对象指向什么？元类isa 指向什么？
+3: objc中类方法和实例方法有什么本质区别和联系？
+4: load 和 initialize 的区别？
+5: _objc_msgForward 函数是做什么的？直接调用会发生什么问题？
+6: 简述下 Objective-C 中调用方法的过程
+7: 能否想象编译后得到的类中增加实例变量？能否向运行时创建的类中添加实例变量？为什么？
+8: 谈谈你对切面编程的理解
+
+网络&多线程问题
+
+1: HTTP的缺陷是什么？
+2: 谈谈三次握手，四次挥手！为什么是三次握手，四次挥手？
+3: socket 连接和 Http 连接的区别
+4: HTTPS，安全层除了SSL还有，最新的？参数握手时首先客户端要发什么额外参数
+5: 什么时候POP网络，有了 Alamofire 封装网络 URLSession为什么还要用Moya ？
+6: 如何实现 dispatch_once
+7: 能否写一个读写锁？谈谈具体的分析
+8: 什么时候会出现死锁？如何避免？
+9: 有哪几种锁？各自的原理？它们之间的区别是什么？
+
+数据结构问题
+
+1: 数据结构的存储一般常用的有几种？各有什么特点？
+2: 集合结构 线性结构 树形结构 图形结构
+3: 单向链表 双向链表 循环链表 
+4: 数组和链表区别 
+5: 堆、栈和队列
+6: 输入一棵二叉树的根结点，求该树的深度？
+7: 输入一棵二叉树的根结点，判断该树是不是平衡二叉树？
+
+算法问题
+
+1: 时间复杂度
+2: 空间复杂度
+3: 常用的排序算法
+4: 字符串反转
+5: 链表反转（头差法）
+6: 有序数组合并
+7: 查找第一个只出现一次的字符（Hash查找）
+8: 查找两个子视图的共同父视图
+9: 无序数组中的中位数(快排思想)
+10: 给定一个整数数组和一个目标值，找出数组中和为目标值的两个数。
+
+架构设计问题
+
+1: 设计模式是为了解决什么问题的？
+2: 看过哪些第三方框架的源码，它们是怎么设计的？
+3: 可以说几个重构的技巧么？你觉得重构适合什么时候来做？
+4: 开发中常用架构设计模式你怎么选型?
+5: 你是如何组件化解耦的？
+
+性能优化问题
+
+1: tableView 有什么好的性能优化方案？
+2: 界面卡顿和检测你都是怎么处理？
+3: 谈谈你对离屏渲染的理解？
+4: 如何降低APP包的大小
+5: 日常如何检查内存泄露？
+6: APP启动时间应从哪些方面优化？
+
+  1.准备编译 （选择build system, building targets）
+2.Build target 
+
+1.创建了几个文件夹，写入辅助文件：将项目的文件结构对应表、将要执行的脚本、项目依赖库的文件结构对应表写成文件,写入Entitlements.plist文件 ，方便后面使用；并且创建一个 .app 包，后面编译后的文件都会被放入包中； 
+
+2.运行预设脚本： Build Phases / Cocoapods 会预设一些脚本。
+
+3.编译类文件：针对每一个文件进行编译，生成可执行文件 Mach-O，这过程 LLVM 的完整流程，前端、优化器、后端；
+
+4.链接文件：将项目中的多个可执行文件合并成一个文件；
+
+5.拷贝资源文件：将项目中的资源文件拷贝到目标包；
 
 
-  
+6.编译 Asset 文件：我们的图片如果使用 Assets.xcassets 来管理图片，那么这些图片将会被编译成机器码，除了 icon 和 launchImage；
+
+7.编译XIB文件， storyboard 文件：storyboard 文件也是会被编译的；
+
+8.链接 storyboard 文件：将编译后的 storyboard 文件链接成一个文件；
+
+9.生成DSYM文件
+
+10.运行 Cocoapods 脚本：将在编译项目之前已经编译好的依赖库和相关资源拷贝到包中。(如果有bugly脚本 还会执行)
+
+11.生成 .app 包
+12.将 Swift 标准库拷贝到包中（如果有swift）
+13.对包进行签名
+14.完成打包
+
+
+ LLVM 编译过程
+*   预处理
+*   词法分析
+*   语法分析
+*   生成 AST
+*   静态分析
+*   生成 LLVM IR
+*   编译器优化
+*   Bitcode （可选）
+*   生成汇编
+*   生成目标文件
+*   生成可执行文件
+
+void \* _Nullable NSMapGet(NSMapTable \* _Nonnull, const void \* _Nullable): map table argument is NULL**
+
+runtime时系统创建了多少个全局对象 数据结构是什么 作用是什么
+
+面试题：
+1.用什么集合，几个集合区别是什么
+2.java类型有什么，我说是数据类型， 八大数据类型 他还是问，string是什么类型， 我说是引用类型，接着问 string 和stringbuffer stringbuilding区别是什么
+3.消息队列
+4.mq
+5.sql优化 
+6.为什么tableView需要数据源来实现协议方法而不是直接把数据通过属性传给tableView？
+面试题A：
+1.重写和重载分别是什么，区别是什么
+2.hashMap的底层远离
+3.创建线程的几个方法是什么，区别是什么
+4.linux命令中用什么打开文件， 有几种
+5.vi命令中用什么搜索
+6.linux中用什么查询
+面试题B
+1.java多线程，
+https://www.runoob.com/java/java-multithreading.html
+2.事务管理，
+https://blog.csdn.net/zhaohong_bo/article/details/90443545 
+3.Zookeeper 
+https://www.cnblogs.com/areyouready/p/10014947.html 
+4.Redis，
+https://www.runoob.com/redis/redis-intro.html 
+5.java集合类的用法，如:HashMap的用法，
+https://baijiahao.baidu.com/s?id=1635677223045847111&wfr=spider&for=pc 
+6.数据库分区分表， 
+https://blog.csdn.net/qq_28289405/article/details/80576614 
+7.索引优化 ， 
+https://blog.csdn.net/yangxingpa/article/details/81477607 
+8.单点登录的问题 
+https://www.cnblogs.com/ywlaker/p/6113927.html 
+面试题C
+springcloud的五大组件是什么
+面试题d
+1.消息队列
+2.redius
+3.集合有哪些，hashmap,hashset 区别
+4.springboot 注解 ，核心注解是什么，核心注解是哪几个组合
+5.Arreylist  linkedlist 区别
+6.spring,springbuilder,springbuffer 区别
+7.字符串的方法(忘了具体怎么问，)就是回答。append 等，
+8.用过哪些中间价
+9.sql优化，数据库优化做过那
+10.分页
+11.分库分表
+12.ioc,aop是什么
+15:30
+面试题E：
+1.抽象类和接口的区别是什么
+2.异常都有几种，都是怎么处理的
+3.== 和equals什么区别
+
+
+
+
+
+面试题A：
+1.重写和重载分别是什么，区别是什么
+2.hashMap的底层远离
+3.创建线程的几个方法是什么，区别是什么
+4.linux命令中用什么打开文件， 有几种
+5.vi命令中用什么搜索
+6.linux中用什么查询
+
+面试题B
+1.java多线程，2.事务管理，
+3.zookeeper，
+4.Redis，
+5.java集合类的用法，如:hashmap的用法，
+6.数据库分区分表，
+7.索引优化 ，
+8.单点登录的问题
+
+面试题C
+springcloud的五大组件是什么
+
+面试题d
+1.消息队列
+2.redius
+3.集合有哪些，hashmap,hashset 区别
+4.springboot 注解 ，核心注解是什么，核心注解是哪几个组合
+5.Arreylist  linkedlist 区别
+6.spring,springbuilder,springbuffer 区别
+7.字符串的方法(忘了具体怎么问，)就是回答。append 等，
+8.用过哪些中间价
+9.sql优化，数据库优化做过那
+10.分页
+11.分库分表
+12.ioc,aop是什么
+
+面试题E：
+1.抽象类和接口的区别是什么
+2.异常都有几种，都是怎么处理的
+3.== 和equals什么区别
+
+面试题F：
+1.SpringCloud具有以下特点：
+ 做到了良好的开箱即用，可扩展性机制覆盖
+ 包括服务发现和服务注册
+ 服务地址路由
+ 软负载均衡
+ 断路器
+ 分布式消息传递
+2.springboot的注解， 关于参数的都有哪个
+3.l
+
+面试题G:
+1.重载与重写的区别？
+2.string、stringbuffer、springbuilder的区别？
+3.说说你知道的集合（一般会问）
+4.Arraylist与linkedlist的区别？（问的较多）
+5.hashtable与hashmap的区别？（问的较多）
+
+面试题F：
+1.控制器view的加载过程
+2.应用程序的启动流程
+3.事件传递与响应的完整过程
+4.XIB文件的构成分为哪三个图标？都具有什么功能？
+
+什么是指针、指针地址
+
+
+
+什么是cpu：CPU是中央处理器，是电脑内超大规模的集成电路，主控电脑的运算核心与控制核心，可以处理与解释计算机软件的数据。一个成功的CPU不仅有助于降低内部整体计算的成本，还可以通过向外输出给客户更高性价比的选择。

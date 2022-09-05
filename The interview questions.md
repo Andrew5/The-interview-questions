@@ -6,49 +6,56 @@
 
 答：nonatomic：非原子操作，决定编译器生成的setter getter是否是原子操作,不会为setter方法加锁。系统自动生成的   getter/setter   方法不一样。如果自己写   getter/setter  ，那   atomic/nonatomic/retain/assign/copy   这些关键字只起提示作用，写不写都一样。线程不安全  ,如有两个线程访问同一个属性，会出现无法预料的结果.
 atomic  和  nonatomic  用来决定编译器生成的  getter  和  setter  是否为原子操作。在多线程环境下，原子操作是必要的，否则有可能引起错误的结果。
- 对于  atomic  的属性，  atomic  表示多线程安全，  atomic  意为操作是原子的，系统生成的   getter/setter   会保证   get  、  set   操作的完整性，不受其他线程影响。比如，线程   A   的   getter   方法运行到一半，线程   B   调用了   setter  ：那么线程   A   的   getter   还是能得到一个完好无损的对象。意味着只有一个线程访问实例变量  (  生成的  setter  和  getter  方法是一个原子操作  )  而  nonatomic  就没有这个保证了。所以，  nonatomic  的速度要比  atomic  快  ;  不过  atomic  可并不能保证线程安全。如果线程   A   调了   getter  ，与此同时线程   B   、线程   C   都调了   setter——  那最后线程   A get   到的值，  3  种都有可能：可能是   B  、  C set   之前原始的值，也可能是   B set   的值，也可能是   C set   的值。同时，最终这个属性的值，可能是   B set   的值，也有可能是   C set   的值  . 
-atomic  是线程安全的  ,  需要消耗大量的资源，至少在当前的存取器上是安全的。它是一个默认的特性，但是很少使用，因为比较影响效率  ,  加了  atomic  ，  setter  函数会变成下面这样：
-if (property != newValue) {
-[property release];
-property = [newValue retain];
-}
-假设有一个   atomic   的属性   "name"  ，如果线程   A   调  [self setName:@"A"]  ，线程   B   调  [self setName:@"B"]  ，线程   C   调  [self name]  ，那么所有这些不同线程上的操作都将依次顺序执行  ——  也就是说，如果一个线程正在执行   getter/setter  ，其他线程就得等待。因此，属性   name   是读  /  写安全的。 
-但是，如果有另一个线程   D   同时在调  [name release]  ，那可能就会  crash  ，因为   release   不受   getter/setter   操作的限制。也就是说，这个属性只能说是读  /  写安全的，但并不是线程安全的，因为别的线程还能进行读写之外的其他操作。线程安全需要开发者自己来保证。
-如果   name   属性是   nonatomic   的，那么上面例子里的所有线程   A  、  B  、  C  、  D   都可以同时执行，可能导致无法预料的结果。如果是   atomic   的，那么   A  、  B  、  C   会串行，而   D   还是并行的。 
-//nonatomic如下解释：
-//@property(nonatomic, retain) UITextField *userName;
-//系统生成的代码如下：
-\- (UITextField *) userName {
-return userName;
-}
-\- (void) setUserName:(UITextField *)userName {
- [userName retain];
- [userName release];
- userName = userName;
-}
-//atomic如下解释：
-//@property(retain) UITextField *userName;
-//系统生成的代码如下：
-\- (UITextField *) userName {
-  UITextField *retval = nil;*
-  @synchronized(self) {
-  retval = [[userName retain] autorelease];
- }
- return retval;
-}
-\- (void) setUserName:(UITextField *)userName {
-  @synchronized(self) { 
-   [userName release];
-   userName = [userName_ retain];
- }
-}
-// atomic 会加一个锁来保障线程安全，并且引用计数会 +1，来向调用者保证这个对象会一直存在。假如不这样做，如有另一个线程调 setter，可能会出现线程问题，导致引用计数降到0，原来那个对象就会被释放掉；
- @synthesize  的语义：如果没有手动实现  setter  和  getter  方法，编译器会自动添加这两个方法。【强调合成】 
-@dynamic  的语义：告知编译器  ,  属性的  setter  与  getter  方法由自己实现，不需要自动生成。【对于  readonly  的属性只需要提供  geter  】  ;  当没有用  @dynamic  修饰属性的时候，编译器默认是实现了  getter  和  setter  方法。还顺便插入了实例变量 
+ 对于  atomic  的属性，  atomic  表示多线程安全，  atomic  意为操作是原子的，系统生成的   getter/setter   会保证   get  、  set   操作的完整性，不受其他线程影响。
+比如，线程   A   的   getter   方法运行到一半，线程   B   调用了   setter  ：那么线程   A   的   getter   还是能得到一个完好无损的对象。意味着只有一个线程访问实例变量  (  生成的  setter  和  getter  方法是一个原子操作  )  而  nonatomic  就没有这个保证了。所以，  nonatomic  的速度要比  atomic  快  ;  不过  atomic  可并不能保证线程安全。如果线程   A   调了   getter  ，与此同时线程   B   、线程   C   都调了   setter——  那最后线程   A get   到的值，  3  种都有可能：可能是   B  、  C set   之前原始的值，也可能是   B set   的值，也可能是   C set   的值。同时，最终这个属性的值，可能是   B set   的值，也有可能是   C set   的值  . 
+
+> atomic  是线程安全的  ,  需要消耗大量的资源，至少在当前的存取器上是安全的。它是一个默认的特性，但是很少使用，因为比较影响效率  ,  加了  atomic  ，  setter  函数会变成下面这样：
+> if (property != newValue) {
+> [property release];
+> property = [newValue retain];
+> }
+> 假设有一个   atomic   的属性   "name"  ，如果线程   A   调  [self setName:@"A"]  ，线程   B   调  [self setName:@"B"]  ，线程   C   调  [self name]  ，那么所有这些不同线程上的操作都将依次顺序执行  ——  也就是说，如果一个线程正在执行   getter/setter  ，其他线程就得等待。因此，属性   name   是读  /  写安全的。 
+> 但是，如果有另一个线程   D   同时在调  [name release]  ，那可能就会  crash  ，因为   release   不受   getter/setter   操作的限制。也就是说，这个属性只能说是读  /  写安全的，但并不是线程安全的，因为别的线程还能进行读写之外的其他操作。线程安全需要开发者自己来保证。
+> 如果   name   属性是   nonatomic   的，那么上面例子里的所有线程   A  、  B  、  C  、  D   都可以同时执行，可能导致无法预料的结果。如果是   atomic   的，那么   A  、  B  、  C   会串行，而   D   还是并行的。 
+> //nonatomic如下解释：
+> //@property(nonatomic, retain) UITextField *userName;
+> //系统生成的代码如下：
+> \- (UITextField *) userName {
+> return userName;
+> }
+> \- (void) setUserName:(UITextField *)userName {
+>  [userName retain];
+>  [userName release];
+>  userName = userName;
+> }
+> //atomic如下解释：
+> //@property(retain) UITextField *userName;
+> //系统生成的代码如下：
+> \- (UITextField *) userName {
+>   UITextField *retval = nil;*
+>   @synchronized(self) {
+>   retval = [[userName retain] autorelease];
+>  }
+>  return retval;
+> }
+> \- (void) setUserName:(UITextField *)userName {
+>   @synchronized(self) { 
+>    [userName release];
+>    userName = [userName_ retain];
+>  }
+> }
+> // atomic 会加一个锁来保障线程安全，并且引用计数会 +1，来向调用者保证这个对象会一直存在。假如不这样做，如有另一个线程调 setter，可能会出现线程问题，导致引用计数降到0，原来那个对象就会被释放掉；
+>  @synthesize  的语义：如果没有手动实现  setter  和  getter  方法，编译器会自动添加这两个方法。【强调合成】 
+> @dynamic  的语义：告知编译器  ,  属性的  setter  与  getter  方法由自己实现，不需要自动生成。【对于  readonly  的属性只需要提供  geter  】  ;  当没有用  @dynamic  修饰属性的时候，编译器默认是实现了  getter  和  setter  方法。还顺便插入了实例变量 
+
+atomic 修饰的属性是绝对安全的吗？为什么？
+不是，所谓的安全只是局限于 Setter、Getter 的访问器方法而言的，你对它做 Release 的操作是不会受影响的。这个时候就容易崩溃了。
 
 ###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
 
-答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，key是所指对象的地址，value是weak指针的地址（这个地址的值是所指对象的地址）数组。为什么value是数组？因为一个对象可能被多个弱引用指针指向。 weak 的实现原理可以概括一下三步：1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。2、添加引用时：objc_initWeak函数会调用objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表。3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，最后清理对象的记录。浅谈iOS之weak底层实现原理1、Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。具体过程如下1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。2、添加引用时: objc_initWeak函数会调用objc storeWeak(0函数,更新指针指向,创建对应的弱引用表。3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？当释放对象时，其基本流程如下：1、调用objc_release2、因为对象的引用计数为0，所以执行dealloc3、在dealloc中，调用了objc_rootDealloc函数4、在objc_rootDealloc中，调用了object_dispose函数5、调用objc_destructInstance6、最后调用objc_clear_deallocating,详细过程如下：a. 从weak表中获取废弃对象的地址为键值的记录b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nilc. 将weak表中该记录删除d. 从引用计数表中删除废弃对象的地址为键值的记录
+答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，key是所指对象的地址，value是weak指针的地址（这个地址的值是所指对象的地址）数组。为什么value是数组？因为一个对象可能被多个弱引用指针指向。 weak 的实现原理可以概括一下三步：1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。2、添加引用时：objc_initWeak函数会调用objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表。3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，最后清理对象的记录。浅谈iOS之weak底层实现原理
+
+1、Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。具体过程如下1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。2、添加引用时: objc_initWeak函数会调用objc storeWeak(0函数,更新指针指向,创建对应的弱引用表。3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？当释放对象时，其基本流程如下：1、调用objc_release2、因为对象的引用计数为0，所以执行dealloc3、在dealloc中，调用了objc_rootDealloc函数4、在objc_rootDealloc中，调用了object_dispose函数5、调用objc_destructInstance6、最后调用objc_clear_deallocating,详细过程如下：a. 从weak表中获取废弃对象的地址为键值的记录b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nilc. 将weak表中该记录删除d. 从引用计数表中删除废弃对象的地址为键值的记录
 
 ###### 3: block 用什么修饰？strong 可以？
 
@@ -215,6 +222,122 @@ bookName的声明中指定属性nonatomic，表示为非线程安全的，set方
 		◦	旋转Screen会触发父UIView上的layoutSubviews    	
 		◦	改变transform属性时，当然frame也会变    	
 		◦	处于key window的UIView才会调用(程序同一时间只有一个window为keyWindow，可以简单理解为显示在最前面的window为keywindow)    最后总结一句话就是，有必要时才会调用，比如设置Frame值没有变化，是不会被调用的，很明显没有必要
+
+###### 28、typeof 和 __typeof,typeof 的区别?
+
+- __typeof __() 和 __typeof() 是 C语言 的编译器特定扩展，因为标准 C 不包含这样的运算符。 标准 C 要求编译器用双下划线前缀语言扩展（这也是为什么你不应该为自己的函数，变量等做这些）
+- typeof() 与前两者完全相同的，只不过去掉了下划线，同时现代的编译器也可以理解。
+  所以这三个意思是相同的，但没有一个是标准C，不同的编译器会按需选择符合标准的写法。
+
+###### 29、iOS内存管理方式
+
+Tagged Pointer（小对象）
+
+Tagged Pointer 专门用来存储小的对象，例如 NSNumber 和 NSDate
+
+Tagged Pointer 指针的值不再是地址了，而是真正的值。所以，实际上它不再是一个对象了，它只是一个披着对象皮的普通变量而已。所以，它的内存并不存储在堆中，也不需要 malloc 和 free
+
+在内存读取上有着 3 倍的效率，创建时比以前快 106 倍
+
+objc_msgSend 能识别 Tagged Pointer，比如 NSNumber 的 intValue 方法，直接从指针提取数据
+
+使用 Tagged Pointer 后，指针内存储的数据变成了 Tag + Data，也就是将数据直接存储在了指针中
+
+NONPOINTER_ISA （指针中存放与该对象内存相关的信息） 苹果将 isa 设计成了联合体，在 isa 中存储了与该对象相关的一些内存的信息，原因也如上面所说，并不需要 64 个二进制位全部都用来存储指针。
+
+isa 的结构：
+
+// x86_64 架构
+struct {
+    uintptr_t nonpointer        : 1;  // 0:普通指针，1:优化过，使用位域存储更多信息
+    uintptr_t has_assoc         : 1;  // 对象是否含有或曾经含有关联引用
+    uintptr_t has_cxx_dtor      : 1;  // 表示是否有C++析构函数或OC的dealloc
+    uintptr_t shiftcls          : 44; // 存放着 Class、Meta-Class 对象的内存地址信息
+    uintptr_t magic             : 6;  // 用于在调试时分辨对象是否未完成初始化
+    uintptr_t weakly_referenced : 1;  // 是否被弱引用指向
+    uintptr_t deallocating      : 1;  // 对象是否正在释放
+    uintptr_t has_sidetable_rc  : 1;  // 是否需要使用 sidetable 来存储引用计数
+    uintptr_t extra_rc          : 8;  // 引用计数能够用 8 个二进制位存储时，直接存储在这里
+};
+
+// arm64 架构
+struct {
+    uintptr_t nonpointer        : 1;  // 0:普通指针，1:优化过，使用位域存储更多信息
+    uintptr_t has_assoc         : 1;  // 对象是否含有或曾经含有关联引用
+    uintptr_t has_cxx_dtor      : 1;  // 表示是否有C++析构函数或OC的dealloc
+    uintptr_t shiftcls          : 33; // 存放着 Class、Meta-Class 对象的内存地址信息
+    uintptr_t magic             : 6;  // 用于在调试时分辨对象是否未完成初始化
+    uintptr_t weakly_referenced : 1;  // 是否被弱引用指向
+    uintptr_t deallocating      : 1;  // 对象是否正在释放
+    uintptr_t has_sidetable_rc  : 1;  // 是否需要使用 sidetable 来存储引用计数
+    uintptr_t extra_rc          : 19;  // 引用计数能够用 19 个二进制位存储时，直接存储在这里
+};
+
+这里的 has_sidetable_rc 和 extra_rc，has_sidetable_rc 表明该指针是否引用了 sidetable 散列表，之所以有这个选项，是因为少量的引用计数是不会直接存放在 SideTables 表中的，对象的引用计数会先存放在 extra_rc 中，当其被存满时，才会存入相应的 SideTables 散列表中，SideTables 中有很多张 SideTable，每个 SideTable 也都是一个散列表，而引用计数表就包含在 SideTable 之中。
+
+散列表（引用计数表、弱引用表）
+
+引用计数要么存放在 isa 的 extra_rc 中，要么存放在引用计数表中，而引用计数表包含在一个叫 SideTable 的结构中，它是一个散列表，也就是哈希表。而 SideTable 又包含在一个全局的 StripeMap 的哈希映射表中，这个表的名字叫 SideTables。
+
+当一个对象访问 SideTables 时：
+
+首先会取得对象的地址，将地址进行哈希运算，与 SideTables 中 SideTable 的个数取余，最后得到的结果就是该对象所要访问的 SideTable
+
+在取得的 SideTable 中的 RefcountMap 表中再进行一次哈希查找，找到该对象在引用计数表中对应的位置
+
+如果该位置存在对应的引用计数，则对其进行操作，如果没有对应的引用计数，则创建一个对应的 size_t 对象，其实就是一个 uint 类型的无符号整型
+
+弱引用表也是一张哈希表的结构，其内部包含了每个对象对应的弱引用表 weak_entry_t，而 weak_entry_t 是一个结构体数组，其中包含的则是每一个对象弱引用的对象所对应的弱引用指针。
+
+###### 30、runtime 如何实现 weak 属性？
+
+weak 此特质表明该属性定义了一种「非拥有关系」(nonowning relationship)。为这种属性设置新值时，设置方法既不持有新值（新指向的对象），也不释放旧值（原来指向的对象）。
+
+runtime 对注册的类，会进行内存布局，从一个粗粒度的概念上来讲，这时候会有一个 hash 表，这是一个全局表，表中是用 weak 指向的对象内存地址作为 key，用所有指向该对象的 weak 指针表作为 value。当此对象的引用计数为 0 的时候会 dealloc，假如该对象内存地址是 a，那么就会以 a 为 key，在这个 weak 表中搜索，找到所有以 a 为键的 weak 对象，从而设置为 nil。
+
+runtime 如何实现 weak 属性具体流程大致分为 3 步：
+
+1、初始化时：runtime 会调用 objc_initWeak 函数，初始化一个新的 weak 指针指向对象的地址。
+
+2、添加引用时：objc_initWeak 函数会调用 objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向（指针可能原来指向着其他对象，这时候需要将该 weak 指针与旧对象解除绑定，会调用到 weak_unregister_no_lock），如果指针指向的新对象非空，则创建对应的弱引用表，将 weak 指针与新对象进行绑定，会调用到 weak_register_no_lock。在这个过程中，为了防止多线程中竞争冲突，会有一些锁的操作。
+
+3、释放时：调用 clearDeallocating 函数，clearDeallocating 函数首先根据对象地址获取所有 weak 指针地址的数组，然后遍历这个数组把其中的数据设为 nil，最后把这个 entry 从 weak 表中删除，最后清理对象的记录。
+
+###### 31、runtime如何通过selector找到对应的IMP地址？
+
+每一个类对象中都一个对象方法列表（对象方法缓存）
+
+类方法列表是存放在类对象中isa指针指向的元类对象中（类方法缓存）。
+
+方法列表中每个方法结构体中记录着方法的名称,方法实现,以及参数类型，其实selector本质就是方法名称,通过这个方法名称就可以在方法列表中找到对应的方法实现。
+
+当我们发送一个消息给一个NSObject对象时，这条消息会在对象的类对象方法列表里查找。
+
+当我们发送一个消息给一个类时，这条消息会在类的Meta Class对象的方法列表里查找。
+
+###### 32.简述下Objective-C中调用方法的过程
+
+Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
+
+objc在向一个对象发送消息时，runtime库会根据对象的isa指针找到该对象实际所属的类
+
+然后在该类中的方法列表以及其父类方法列表中寻找方法运行
+
+如果，在最顶层的父类（一般也就NSObject）中依然找不到相应的方法时，程序在运行时会挂掉并抛出异常unrecognized selector sent to XXX
+
+但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
+
+###### 33、.load和initialize的区别
+
+两者都会自动调用父类的，不需要super操作，且仅会调用一次（不包括外部显示调用).
+
+load和initialize方法都会在实例化对象之前调用，以main函数为分水岭，前者在main函数之前调用，后者在之后调用。这两个方法会被自动调用，不能手动调用它们。
+
+load和initialize方法都不用显示的调用父类的方法而是自动调用，即使子类没有initialize方法也会调用父类的方法，而load方法则不会调用父类。
+
+load方法通常用来进行Method Swizzle，initialize方法一般用于初始化全局变量或静态变量。
+
+load和initialize方法内部使用了锁，因此它们是线程安全的。实现时要尽可能保持简单，避免阻塞线程，不要再使用锁。
 
 ###### 线程锁
 
@@ -706,10 +829,23 @@ post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数
 
 #### 备注：
 
+https://blog.csdn.net/MinggeQingchun/article/details/117471901
+
+###### iOS8.0 至 iOS15.0 版本变化？
+
+答：在iOS8里面，官方提供了新的类UIAlertController来替换UIActionSheet 和 UIAlertView。
+定位功能使用改变，定位开启定位和始终开启定位，还有info.plist文件新增定位字段
+在iOS5.0时时可以跳转到系统的设置页的，跳转到系统设置里自己App的页面，但是在5.1之后就不可以
+
 ###### 如何看待重构？
 
 答：二次求导就变成一次求导函数，依赖注入、tableview、代理在安卓实现过程
 如果重复三遍就写成工具
+
+###### 动态链接到虚拟内存和machO文件及物理内存之间的地址映射转换吗？
+
+
+
 ###### C 语言
 int a,b;
 a = 2;
@@ -782,3 +918,878 @@ NSLog(@"%d",yy);//10
 ###### flutter是如何实现多任务并行的，谈谈Isolate理解
 
 答：
+
+#### Swift知识
+
+###### 1、Swift和Objective-C有什么区别？
+
+1）Swift是强类型（静态）语言，有类型推断，Objective-C弱类型（动态）语言
+2）Swift面向协议编程，Objective-C面向对象编程
+3）Swift注重值类型，Objective-C注重引用类型
+4）Swift支持泛型，Objective-C只支持轻量泛型（给集合添加泛型）
+5）Swift支持静态派发（效率高）、动态派发（函数表派发、消息派发）方式，Objective-C支持动态派发（消息派发）方式
+6）Swift支持函数式编程（高阶函数）
+7）Swift的协议不仅可以被类实现，也可以被Struct和Enum实现
+8）Swift有元组类型、支持运算符重载
+9）Swift支持命名空间
+10）Swift支持默认参数
+11）Swift比Objective-C代码更简洁
+
+###### 2、讲述讲Swift的派发机制
+
+1）函数的派发机制：静态派发（直接派发）、函数表派发、消息派发
+2）Swift派发机制总结：
+
+Swift中所有ValueType（值类型：Struct、Enum）使用直接派发；
+Swift中协议的Extensions使用直接派发，初始声明函数使用函数表派发；
+Swift中Class中Extensions使用直接派发，初始声明函数使用函数表派发，dynamic修饰的函数使用消息派发；
+Swift中NSObject的子类用@nonobjc或final修饰的函数使用直接派发，初始声明函数使用函数表派发，dynamic修饰的Extensions使用消息派发；
+3）Swift中函数派发查看方式: 可将Swift代码转换为SIL（中间码）
+swiftc -emit-silgen -O example.swift
+
+###### 3、Swift如何显示指定派发方式？
+
+添加final关键字的函数使用直接派发
+添加static关键字函数使用直接派发
+添加dynamic关键字函数使用消息派发
+添加@objc关键字的函数使用消息派发
+添加@inline关键字的函数会告诉编译器可以使用直接派发
+
+###### 4、Struct和Class的区别？
+
+1）Struct不支持继承，Class支持继承
+2）Struct是值类型，Class是引用类型
+3）Struct使用let创建不可变，Class使用let创建可变
+4）Struct无法修改自身属性值，函数需要添加mutating关键字
+5）Struct不需要deinit方法，因为值类型不关系引用计数，Class需要deinit方法
+6）Struct初始化方法是基于属性的
+
+###### 5、Swift中的常量和Objective-C中的常量有啥区别？
+
+Objective-C中的常量(const)是编译期决定的，Swift中的常量(let)是运行时确定的
+
+###### 6、?，??的区别
+
+？用来声明可选值，如果变量未初始化则自动初始化nil；在操作可选值时，如果可选值时nil则不响应后续的操作；使用as?进行向下转型操作；
+?? 用来判断左侧可选值非空（not nil）时返回左侧值可选值，左侧可选值为空（nil）则返回右侧的值。
+
+###### 7、Swift中mutating的作用
+
+Swift中协议是可以被Struct和Enum实现的，mutating关键字是为了能在被修饰的函数中修改Struct或Enum的变量值，对Class完全透明。
+
+###### 8、Set（集合类型）的使用场景
+
+Set存储值类型相同、无序、去重
+
+###### 9、final关键词的用法
+
+final关键词的作用：它修饰的类、方法、变量是不能被继承或重写的，编译器会报错。另外，通过它可以显示的指定函数的派发机制。
+
+###### 10、lazy关键词的用法
+
+lazy关键词的作用：指定延时加载（懒加载），懒加载存储属性只会在首次使用时才会计算初始值属性。懒加载属性必须声明（var）为变量，因为常量属性（let）初始化之前会有值。
+lazy修饰的属性非线程安全的。**1.struct是值类型，class是引用类型。**
+
+值类型的变量直接包含它们的数据，对于值类型都有它们自己的数据副本，因此对一个变量操作不可能影响另一个变量。
+
+引用类型的变量存储对他们的数据引用，因此后者称为对象，因此对一个变量操作可能影响另一个变量所引用的对象。
+
+###### **2.二者的本质区别：**
+
+struct是深拷贝，拷贝的是内容；class是浅拷贝，拷贝的是指针。
+
+###### **3.property的初始化不同：**
+
+class 在初始化时不能直接把 property 放在 默认的constructor 的参数里，而是需要自己创建一个带参数的constructor；而struct可以，把属性放在默认的constructor 的参数里。
+
+###### **4.变量赋值方式不同：**
+
+struct是值拷贝；class是引用拷贝。
+
+###### **5.immutable变量：**
+
+swift的可变内容和不可变内容用var和let来甄别，如果初始为let的变量再去修改会发生编译错误。struct遵循这一特性；class不存在这样的问题。
+
+###### **6.mutating function：** 
+
+struct 和 class 的差別是 struct 的 function 要去改变 property 的值的时候要加上 mutating，而 class 不用。
+
+###### **7.继承：** 
+
+struct不可以继承，class可以继承。
+
+###### **8.struct比class更轻量：**
+
+struct分配在栈中，class分配在堆中。
+
+###### open与public的区别
+
+public:可以别任何人访问，但是不可以被其他module复写和继承。
+
+open:可以被任何人访问，可以被继承和复写。
+
+###### swift中struct作为数据模型
+
+优点:
+
+1.安全性:因为 Struct 是用值类型传递的，它们没有引用计数。
+
+2.内存:由于他们没有引用数，他们不会因为循环引用导致内存泄漏。
+
+  速度:值类型通常来说是以栈的形式分配的，而不是用堆。因此他们比 Class 要快很多!
+
+3.拷贝:Objective-C 里拷贝一个对象,你必须选用正确的拷贝类型（深拷贝、浅拷贝）,而值类型的拷贝则非常轻松！
+
+4.线程安全:值类型是自动线程安全的。无论你从哪个线程去访问你的 Struct ，都非常简单。
+
+缺点:
+
+1.Objective-C与swift混合开发：OC调用的swift代码必须继承于NSObject。
+
+2.继承：struct不能相互继承。
+
+3.NSUserDefaults：Struct 不能被序列化成 NSData 对象
+
+###### Swift代码复用的方式有哪些?
+
+1.继承
+
+2.在swift 文件里直接写方法，相当于一个全局函数
+
+3.extension 给类直接扩展方法
+
+###### Array、Set、Dictionary 三者的区别
+
+Set:是用来存储相同类型、没有确定顺序、且不重复的值的集
+
+Array:是有序数据的集
+
+Dictionary:是无序的键值对的集
+
+###### map、filter、reduce 的作用
+
+map : 映射 ，将一个元素根据某个函数 映射 成另一个元素（可以是同类型，也可以是不同类型）
+
+filter : 过滤 ， 将一个元素传入闭包中，如果返回的是false ， 就过滤掉
+
+reduce ：先映射后融合 ， 将数组中的所有元素映射融合在一起。
+
+###### map 与 flatmap 的区别
+
+map:作用于数组中的每个元素，闭包返回一个变换后的元素，接着将所有这些变换后的元素组成一个新的数组。
+
+flatMap:功能和map类似，区别在于flatMap可以去nil,能够将可选类型(optional)转换为非可选类型(non-optionals),把数组中存有数组的数组 一同打开变成一个新的数组(数组降维)
+
+###### copy on write
+
+写时复制：每当数组被改变，它首先检查它对存储缓冲区 的引用是否是唯一的，或者说，检查数组本身是不是这块缓冲区的唯一拥有者。如果是，那么 缓冲区可以进行原地变更;也不会有复制被进行。不过，如果缓冲区有一个以上的持有者 (如本 例中)，那么数组就需要先进行复制，然后对复制的值进行变化，而保持其他的持有者不受影响。
+
+在Swift提供一个函数isKnownUniquelyReferenced，能检查一个类的实例是不是唯一的引用，如果是，说明实例没有被共享
+
+eg: isKnownUniquelyReferenced(&object)
+
+###### 获取当前代码的函数名和行号
+
+函数名:#function 
+
+行号:#line 
+
+文件名:#file
+
+###### guard、defer、where
+
+defer:defer所声明的 block 会在当前代码执行退出后被调用，如果有多个 defer, 那么后加入的先执行
+
+guard:可以理解为拦截，凡是不满足 guard 后面条件的，都不会再执行下面的代码。
+
+where:在Swift语法里where关键字的作用跟SQL的where一样， 即附加条件判断。where关键字可以用在集合遍历、switch/case、协议中； Swift3时if let和guard场景的where已经被Swift4的逗号取代
+
+###### String 与 NSString 的关系与区别
+
+String为Swift的Struct结构，值类型；NSString为OC对象，引用类型，能够互相转换
+
+###### throws 和 rethrows 的用法与作用
+
+throws 用在函数上, 表示这个函数会抛出错误.
+
+有两种情况会抛出错误, 一种是直接使用 throw 抛出, 另一种是调用其他抛出异常的函数时, 直接使用 try xx 没有处理异常.
+
+```swift
+enum DivideError: Error {
+    case EqualZeroError;
+}
+func divide(_ a: Double, _ b: Double) throws -> Double {
+    guard b != Double(0) else {
+        throw DivideError.EqualZeroError
+    }
+    return a / b
+}
+func split(pieces: Int) throws -> Double {
+    return try divide(1, Double(pieces))
+}
+```
+
+rethrows 与 throws 类似, 不过只适用于参数中有函数, 且函数会抛出异常的情况, rethrows 可以用 throws 替换, 反过来不行
+
+```swift
+func processNumber(a: Double, b: Double, function: (Double, Double) throws -> Double) rethrows -> Double {
+    return try function(a, b)
+}
+```
+
+###### try?和 try!
+
+这两个都用于处理可抛出异常的函数, 使用这两个关键字可以不用写 do catch.
+
+区别在于, try? 在用于处理可抛出异常函数时, 如果函数抛出异常, 则返回 nil, 否则返回函数返回值的可选值
+
+而 try! 则在函数抛出异常的时候崩溃, 否则则返会函数返回值, 相当于(try? xxx)!
+
+###### associatedtype 的作用
+
+简单来说就是 protocol 使用的泛型
+
+###### Swift 下的 KVO , KVC
+
+KVO, KVC 都是Objective-C 运行时的特性, Swift 是不具有的, 想要使用, 必须要继承 NSObject, 自然, 继承都没有的结构体也是没有 KVO, KVC 的.
+
+KVC：Swift 下的 KVC 用起来很简单, 只要继承 NSObject 就行了
+
+KVO：KVO 就稍微麻烦一些了,由于 Swift 为了效率, 默认禁用了动态派发, 因此想用 Swift 来实现 KVO, 除了继承NSObject，还需要将想要观测的对象标记为 dynamic
+
+###### @objc
+
+OC 是基于运行时，遵循了 KVC 和动态派发，而 Swift 是静态语言，为了追求性能，在编译时就已经确定，而不需要在运行时的，在 Swift 类型文件中，为了解决这个问题，需要暴露给 OC 使用的任何地方（类，属性，方法等）的生命前面加上 @objc 修饰符
+
+如果用 Swift 写的 class 是继承 NSObject 的话， Swift 会默认自动为所有非 private 的类和成员加上@objc
+
+###### 自定义下标获取
+
+实现 subscript 即可, 索引除了数字之外, 其他类型也是可以的
+
+```swift
+extension AnyList {
+    subscript(index: Int) -> T{
+        return self.list[index]
+    }
+
+    subscript(indexString: String) -> T?{
+        guard let index = Int(indexString) else {
+            return nil
+        }
+        return self.list[index]
+    }
+}
+```
+
+###### lazy 的作用
+
+懒加载, 当属性要使用的时候, 才去完成初始化
+
+###### 一个类型表示选项，可以同时表示有几个选项选中（类似 UIViewAnimationOptions ），用什么类型表示
+
+需要实现OptionSet, 一般使用 struct 实现. 由于 OptionSet 要求有一个不可失败的init(rawValue:) 构造器, 而 枚举无法做到这一点(枚举的原始值构造器是可失败的, 而且有些组合值, 是没办法用一个枚举值表示的)
+
+```swift
+struct SomeOption: OptionSet {
+    let rawValue: Int
+    static let option1 = SomeOption(rawValue: 1 << 0)
+    static let option2 =  SomeOption(rawValue:1 << 1)
+    static let option3 =  SomeOption(rawValue:1 << 2)
+}
+let options: SomeOption = [.option1, .option2]
+```
+
+###### static和class的区别
+
+static 可以在类、结构体、或者枚举中使用。而 class 只能在类中使用。
+
+static 可以修饰存储属性，static 修饰的存储属性称为静态变量(常量)。而 class 不能修饰存储属性。
+
+static 修饰的计算属性不能被重写。而 class 修饰的可以被重写。
+
+static 修饰的静态方法不能被重写。而 class 修饰的类方法可以被重写。
+
+class 修饰的计算属性被重写时，可以使用 static 让其变为静态属性。
+
+class 修饰的类方法被重写时，可以使用 static 让方法变为静态方法
+
+class关键字指定的类方法可以被子类重写，但是用static关键字指定的类方法是不能被子类重写的
+
+###### mutating
+
+mutating用于函数的最前面,用于告诉编译器这个方法会改变自身.
+
+swift增强了结构体和枚举的使用,结构体和枚举也可以有构造方法和实例方法,但结构体和枚举是值类型,如果我们要在实例方法中修改当前类型的实例属性的值或当前对象实例的值,必须在func前面添加mutating关键字,表示当前方法将会将会修改它相关联的对象实例的实例属性值.
+
+协议中,当在结构体或者枚举实现协议方法时,若对自身属性作修改,需要将协议的方法声明为mutating,对类无影响.
+
+在扩展中,同样若对自身属性作修改,需要将方法声明为mutating
+
+###### swift多线程
+
+1.Thread
+
+```swift
+//方式1：使用类方法，不需要手动启动线程
+Thread.detachNewThreadSelector(#selector(ViewController.downloadImage), toTarget: self, with: nil)
+
+//方式2：实例方法-便利构造器，需调用start()启动线程
+let myThread = Thread(target: self, selector: #selector(thread), object: nil)
+myThread.start()
+```
+
+线程同步：线程同步方法通过锁来实现，每个线程都只用一个锁，这个锁与一个特定的线程关联。
+
+```swift
+//定义两个线程
+var thread1:Thread?
+var thread2:Thread?
+//定义两个线程条件，用于锁住线程
+let condition1 = NSCondition()
+let condition2 = NSCondition()
+     
+override func viewDidLoad() {
+   super.viewDidLoad()
+   thread2 = Thread(target: self, selector: #selector(ViewController.method2), object: nil)
+   thread1 = Thread(target: self, selector: #selector(ViewController.method1), object: nil)
+   thread1?.start()
+}
+     
+//定义两方法，用于两个线程调用
+func method1(sender:AnyObject){
+   for i in 0 ..< 10 {
+      print("Thread 1 running (i)")
+      sleep(1)
+      if i == 2 {
+         thread2?.start() //启动线程2
+         //本线程（thread1）锁定
+         condition1.lock()
+         condition1.wait()
+         condition1.unlock()
+      }
+ 　}
+   print("Thread 1 over")
+   //线程2激活
+   condition2.signal()
+}
+     
+//方法2
+func method2(sender:AnyObject){
+    for i in 0 ..< 10 {
+        print("Thread 2 running (i)")
+        sleep(1)
+        if i == 2 {
+            //线程1激活
+            condition1.signal()
+            //本线程（thread2）锁定
+            condition2.lock()
+            condition2.wait()
+            condition2.unlock()
+         }
+    }
+    print("Thread 2 over")
+}
+```
+
+###### 2.Operation和OperationQueue
+
+2.1 直接用定义好的子类：BlockOperation。
+
+```swift
+let operation = BlockOperation(block: { [weak self] in
+    // 执行代码return
+})
+//创建一个NSOperationQueue实例并添加operation
+let queue = OperationQueue()
+queue.addOperation(operation)
+```
+
+2.2 继承Operation 
+
+　　把Operation子类的对象放入OperationQueue队列中，一旦这个对象被加入到队列，队列就开始处理这个对象，直到这个对象的所有操作完成，然后它被队列释放。
+
+```swift
+class ViewController: UIViewController {
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        //创建线程对象
+        let downloadImageOperation = DownloadImageOperation()
+        //创建一个OperationQueue实例并添加operation
+        let queue = OperationQueue()
+        queue.addOperation(downloadImageOperation)
+    }
+}
+class DownloadImageOperation: Operation {
+    override func main(){
+        let imageUrl = "http://hangge.com/blog/images/logo.png"
+        let data = try! Data(contentsOf: URL(string: imageUrl)!)
+        print(data.count)
+    }
+}
+```
+
+2.3 其他方法
+
+```swift
+//队列设置并发数
+queue.maxConcurrentOperationCount = 5
+//队列取消所有线程操作
+queue.cancelAllOperations()
+//给operation设置回调
+operation.completionBlock = { () -> Void in
+    print("--- operation.completionBlock ---")
+}
+```
+
+###### 3.GCD
+
+3.1 创建队列
+
+```swift
+//------自己创建队列
+//创建串行队列
+let serial = DispatchQueue(label: "serialQueue1")
+//创建并行队列
+let concurrent = DispatchQueue(label: "concurrentQueue1", attributes: .concurrent)
+
+//------系统global队列
+//Global Dispatch Queue有4个执行优先级：
+//.userInitiated  高
+//.default  正常
+//.utility  低
+//.background 非常低的优先级（这个优先级只用于不太关心完成时间的真正的后台任务）
+let globalQueue = DispatchQueue.global(qos: .default)
+
+//------系统主线程队列
+//因为主线程只有一个，所有这自然是串行队列。一起跟UI有关的操作必须放在主线程中执行。
+let mainQueue = DispatchQueue.main
+```
+
+3.2 添加任务到队列
+
+async异步追加Block块（async函数不做任何等待）
+
+```swift
+DispatchQueue.global(qos: .default).async {
+    //处理耗时操作的代码块...
+     
+    //操作完成，调用主线程来刷新界面
+    DispatchQueue.main.async {
+        print("main refresh")
+    }
+}
+```
+
+sync同步追加Block块 
+
+```
+//同步追加Block块，与上面相反。在追加Block结束之前，sync函数会一直等待，等待队列前面的所有任务完成后才能执行追加的任务。
+//添加同步代码块到global队列
+//不会造成死锁，但会一直等待代码块执行完毕
+DispatchQueue.global(qos: .default).sync {
+    print("sync1")
+}
+print("end1")
+ 
+ 
+//添加同步代码块到main队列
+//会引起死锁
+//因为在主线程里面添加一个任务，因为是同步，所以要等添加的任务执行完毕后才能继续走下去。但是新添加的任务排在
+//队列的末尾，要执行完成必须等前面的任务执行完成，由此又回到了第一步，程序卡死
+DispatchQueue.main.sync {
+    print("sync2")
+}
+```
+
+3.3 暂停或者继续队列
+
+　　这两个函数是异步的，而且只在不同的blocks之间生效，对已经正在执行的任务没有影响。suspend()后，追加到Dispatch Queue中尚未执行的任务在此之后停止执行。而resume()则使得这些任务能够继续执行。
+
+```swift
+//创建并行队列
+let conQueue = DispatchQueue(label: "concurrentQueue1", attributes: .concurrent)
+//暂停一个队列
+conQueue.suspend()
+//继续队列
+conQueue.resume()
+```
+
+3.4 asyncAfter 延迟调用
+
+　　asyncAfter 并不是在指定时间后执行任务处理，而是在指定时间后把任务追加到queue里面。因此会有少许延迟。注意，我们不能（直接）取消我们已经提交到 asyncAfter 里的代码。
+
+```swift
+//延时2秒执行
+DispatchQueue.global(qos: .default).asyncAfter(deadline: DispatchTime.now() + 2.0) {
+    print("after!")
+}
+```
+
+　　如果需要取消正在等待执行的Block操作，我们可以先将这个Block封装到DispatchWorkItem对象中，然后对其发送cancle，来取消一个正在等待执行的block。
+
+```swift
+//将要执行的操作封装到DispatchWorkItem中
+let task = DispatchWorkItem { print("after!") }
+//延时2秒执行
+DispatchQueue.main.asyncAfter(deadline: DispatchTime.now() + 2, execute: task)
+//取消任务
+task.cancel()
+```
+
+ 3.5 DispatchWorkItem
+
+　　DispatchWorkItem可以将任务封装成DispatchWorkItem对象。
+
+　　可以调用workItem的`perform()`函数执行任务，也可以将workItem追加到DispatchQueue或DispatchGroup中。以上所有传block的地方都可换成DispatchWorkItem对象。
+DispatchQueue还可以使用`notify`函数观察workItem中的任务执行结束，以及通过`cancel()`函数取消任务。
+
+　　另外，workItem也可以像DispatchGroup一样调用`wait()`函数等待任务完成。需要注意的是，追加workItem的队列或调用`perform()`所在的队列不能与调用`workItem.wait()`的队列是同一个队列，否则会出现线程死锁。
+
+```swift
+// 初始化方法
+init(qos: DispatchQoS, flags: DispatchWorkItemFlags, block: () -> Void)
+
+let workItem = DispatchWorkItem.init {
+      print("执行任务")
+}
+```
+
+3.6 DispatchQueue.concurrentPerform
+
+　　sync函数和Dispatch Group的关联API。会按指定次数异步执行任务，并且会等待指定次数的任务全部执行完成，即会阻塞线程。建议在子线程中使用。
+
+```swift
+DispatchQueue.global().async {
+     DispatchQueue.concurrentPerform(iterations: 5) { (i) in
+         print("执行任务(i+1)")
+     }
+     print("任务执行完成")
+}
+```
+
+3.7 DispatchSemaphore
+
+　　信号量:用于控制访问资源的数量。比如系统有两个资源可以被利用，同时有三个线程要访问，只能允许两个线程访问，第三个会等待资源被释放后再访问。
+信号量的初始化方法：`DispatchSemaphore.init(value: Int)`，value表示允许访问资源的线程数量，当value为0时对访问资源的线程没有限制。
+信号量配套使用`wait()`函数与`signal()`函数控制访问资源。
+
+###### wait函数会阻塞当前线程直到信号量计数大于或等于1，当信号量大于或等于1时，将信号量计数-1, 然后执行后面的代码。signal()函数会将信号量计数+1
+
+　　信号量是GCD同步的一种方式。前面介绍过的`DispatchWorkItemFlags.barrier`是对queue中的任务进行批量同步处理，sync函数是对queue中的任务单个同步处理，而DispatchSemaphore是对queue中的某个任务中的某部分（某段代码）同步处理。此时将`DispatchSemaphore.init(value: Int)`中的参数value传入1。
+
+```swift
+var arr = [Int]()
+let semaphore = DispatchSemaphore.init(value: 1) // 创建信号量，控制同时访问资源的线程数为1
+for i in 0...100 {
+    DispatchQueue.global().async {         
+        /*
+        其他并发操作
+        */    
+        semaphore.wait() // 如果信号量计数>=1,将信号量计数减1；如果信号量计数<1，阻塞线程直到信号量计数>=1
+        arr.append(i)
+        semaphore.signal() // 信号量计加1  
+        /*
+        其他并发操作
+        */
+     }
+}
+```
+
+
+
+什么是optional类型，它是用来解决什么问题的？
+
+答案：optional类型被用来表示任何类型的变量都可以表示缺少值。在Objective-C中，引用类型的变量是可以缺少值得，并且使用nil作为缺少值。基本的数据类型如int 或者float没有这种功能。
+
+Swift用optional扩展了在基本数据类型和引用类型中缺少值的概念。一个optional类型的变量，在任何时候都可以保存一个值或者为nil。
+
+###### **问题2- Swift 1.0 or later**
+
+在Swfit中,什么时候用结构体，什么时候用类？
+
+答案：一直都有这样的争论：到底是用类的做法优于用结构体，还是用结构体的做法优于类。函数式编程倾向于值类型，面向对象编程更喜欢类。
+
+在Swift 中，类和结构体有许多不同的特性。下面是两者不同的总结：
+类支持继承，结构体不支持。
+类是引用类型，结构体是值类型
+
+并没有通用的规则决定结构体和类哪一个更好用。一般的建议是使用最小的工具来完成你的目标，但是有一个好的经验是多使用结构体，除非你用了继承和引用语义。
+注意：在运行时，结构体的在性能方面更优于类，原因是结构体的方法调用是静态绑定，而类的方法调用是动态实现的。这就是尽可能得使用结构体代替类的又一个好的原因。
+
+###### **问题3- Swift 1.0 or later**
+
+什么是泛型？泛型是用来解决什么问题的？
+
+答案：泛型是用来使类型和算法安全的工作的一种类型。在Swift中，在函数和数据结构中都可以使用泛型，例如类、结构体和枚举。
+
+泛型一般是用来解决代码复用的问题。常见的一种情况是，你有一个函数，它带有一个参数，参数类型是A，然而当参数类型改变成B的时候，你不得不复制这个函数。
+
+例如，下面的代码中第二个函数就是复制第一个函数——它仅仅是用String类型代替了Integer类型。
+
+```text
+func areIntEqual(x: Int, _ y: Int) -> Bool {
+  return x == y
+}
+  
+func areStringsEqual(x: String, _ y: String) -> Bool {
+  return x == y
+}
+  
+areStringsEqual("ray", "ray") // true
+areIntEqual(1, 1) // true
+```
+
+Objective-C开发人员可能想到用NSObject类来解决这个问题，代码如下：
+
+```text
+import Foundation
+  
+func areTheyEqual(x: NSObject, _ y: NSObject) -> Bool {
+  return x == y
+}
+  
+areTheyEqual("ray", "ray") // true
+areTheyEqual(1, 1) // true
+```
+
+这个代码会按照预期的方式工作,但是它在编译时不安全。它允许字符串和整数相比较,像这样:
+
+```text
+areTheyEqual(1, "ray")
+```
+
+应用程序不会崩溃,但是允许字符串和整数相比较可能不是预想的结果。
+
+通过采用泛型,可以合并这两个函数为一个并同时保持类型安全。下面是代码实现:
+
+```text
+func areTheyEqual(x: T, _ y: T) -> Bool {
+  return x == y
+}
+  
+areTheyEqual("ray", "ray")
+areTheyEqual(1, 1)
+```
+
+上面的例子是测试两个参数是否相等，这两个参数的类型受到约束都必须遵循Equatable协议。上面的代码达到预想的结果,并且防止了传递不同类型的参数。
+
+###### **问题4- Swift 1.0 or later**
+
+哪些情况下你不得不使用隐式拆包？说明原因。
+
+答案：对optional变量使用隐式拆包最常见的原因如下：
+
+1、对象属性在初始化的时候不能nil,否则不能被初始化。典型的例子是Interface Builder outlet类型的属性，它总是在它的拥有者初始化之后再初始化。在这种特定的情况下，假设它在Interface Builder中被正确的配置——outlet被使用之前，保证它不为nil。
+
+2、解决强引用的循环问题——当两个实例对象相互引用，并且对引用的实例对象的值要求不能为nil时候。在这种情况下，引用的一方可以标记为unowned,另一方使用隐式拆包。
+
+建议：除非必要，不要对option类型使用隐式拆包。使用不当会增加运行时崩溃的可能性。在某些情况下,崩溃可能是有意的行为,但有更好的方法来达到相同的结果,例如,通过使用fatalError( )函数。
+
+###### **问题5- Swift 1.0 or later**
+
+对一个optional变量拆包有多少种方法？并在安全方面进行评价。
+
+答案： 
+
+- 强制拆包 ！操作符——不安全
+- 隐式拆包变量声明——大多数情况下不安全
+- 可选绑定——安全
+- 自判断链接（optional chaining）——安全
+- nil coalescing 运算符（空值合并运算符）——安全
+- Swift 2.0 的新特性 guard 语句——安全
+- Swift 2.0 的新特性optional pattern（可选模式） ——安全（@Kametrixom支持）
+
+###### **中级**
+
+###### **问题1- Swift 1.0 or later**
+
+Swift 是面向对象编程语言还是函数式编程语言？
+
+答案：Swift是一种混合编程语言，它包含这两种编程模式。它实现了面向对象的三个基本原则:
+
+- 封装
+- 继承
+- 多态
+
+说道Swift作为一种函数式编程语言，我们就不得不说一下什么是函数式编程。有很多不同的方法去定义函数式编程语言，但是他们表达的意义相同。
+
+最常见的定义来自维基百科：...它是一种编程规范…它把电脑运算当做数学函数计算，避免状态改变和数据改变。
+
+很难说Swift是一个成熟的函数式语言，但是它已经具备了函数式语言的基础。
+
+###### **问题2- Swift 1.0 or later**
+
+下面的功能特性都包含在Swift中吗？
+
+1、泛型类
+
+2、泛型结构体
+
+3、泛型协议
+
+答案：
+
+- Swift 包含1和2特性。泛型可以在类、结构体、枚举、全局函数或者方法中使用。
+- 3是通过typealias部分实现的。typealias不是一个泛型类型,它只是一个占位符的名字。它通常是作为关联类型被引用，只有协议被一个类型引用的时候它才被定义。
+
+###### **问题3- Swift 1.0 or later**
+
+在Objective-C中，一个常量可以这样定义：
+
+```swift
+const int number = 0;
+```
+
+类似的Swift是这样定义的：
+
+```swift
+let number = 0
+```
+
+两者之间有什么不同吗？如果有，请说明原因。
+
+答案：const常量是一个在编译时或者编译解析时被初始化的变量。通过let创建的是一个运行时常量，是不可变得。它可以使用stattic 或者dynamic关键字来初始化。谨记它的的值只能被分配一次。
+
+###### **问题4- Swift 1.0 or later**
+
+声明一个静态属性或者函数，我们常常使用值类型的static修饰符。下面就是一个结构体的例子：
+
+```swift
+struct Sun {
+static func illuminate() {}
+}
+```
+
+对类来说,使用static 或者class修饰符，都是可以的。它们使用后的效果是一样的，但是本质上是不同的。能解释一下为什么不同吗？
+
+答案：
+
+static修饰的属性或者修饰的函数都不可以重写。但是使用class修饰符，你可以重写属性或者函数。
+
+当static在类中应用的时候，static就成为class final的一个别名。
+
+例如，在下面的代码中，当你尝试重写illuminate()函数时，编译器就会报错：
+
+```swift
+class Star {
+  class func spin() {}
+  static func illuminate() {}
+}
+  
+class Sun : Star {
+  override class func spin() {
+    super.spin()
+  }
+  override static func illuminate() { // error: class method overrides a ‘final‘ class method
+    super.illuminate()
+  }
+}
+```
+
+###### **问题5- Swift 1.0 or later**
+
+你能通过extension(扩展)保存一个属性吗？请解释一下原因。
+
+答案：不能。扩展可以给当前的类型添加新的行为，但是不能改变本身的类型或者本身的接口。如果你添加一个新的可存储的属性，你需要额外的内存来存储新的值。扩展并不能实现这样的任务。
+
+###### **高级**
+
+###### **问题1- Swift 1.2**
+
+在Swift1.2版本中，你能解释一下用泛型来声明枚举的问题吗？拿下面代码中Either枚举来举例说明吧，它有两个泛型类型的参数T和V，参数T在关联值类型为left情况下使用，参数V在关联值为rihgt情况下使用，代码如下：
+
+```swift
+enum Either{
+  case Left(T)
+  case Right(V)
+}
+```
+
+提示：验证上面的条件，需要在Xcode工程里面，而不是在Playgroud中。同时注意，这个问题跟Swift1.2相关，所以Xcode的版本必须是6.4以上。
+
+答案：上面的代码会出现编译错误：
+
+```text
+unimplemented IR generation feature non-fixed multi-payload enum layout
+```
+
+问题是T的内存大小不能确定前期,因为它依赖于T类型本身,但enum情况下需要一个固定大小的有效载荷。
+
+最常用的解决方法是讲泛类型用引用类型包装起来，通常称为box,代码如下：
+
+```swift
+class Box{
+  let value: T
+  init(_ value: T) {
+    self.value = value
+  }
+}
+  
+enum Either{
+  case Left(Box)
+  case Right(Box)
+}
+```
+
+这个问题在Swift1.0及之后的版本出现，但是Swift2.0的时候，被解决了。
+
+###### **问题2- Swift 1.0 or later**
+
+闭包是引用类型吗？
+
+答案：闭包是引用类型。如果一个闭包被分配给一个变量,这个变量复制给另一个变量,那么他们引用的是同一个闭包，他们的捕捉列表也会被复制。
+
+###### **问题3- Swift 1.0 or later**
+
+UInt类型是用来存储无符号整型的。下面的代码实现了一个有符号整型转换的初始化方法：
+
+```swift
+init(_ value: Int)
+```
+
+然而，在下面的代码中，当你给一个负值的时候，它会产生一个编译时错误：
+
+```swift
+let myNegative = UInt(-1)
+```
+
+我们知道负数的内部结构是使用二进制补码的正数，在保持这个负数内存地址不变的情况下，如何把一个负整数转换成一个无符号的整数？
+
+答案：使用下面的初始化方法：
+
+```swift
+UInt(bitPattern: Int)
+```
+
+###### **问题4- Swift 1.0 or later**
+
+描述一种在Swift中出现循环引用的情况，并说明怎么解决。
+
+答案：循环引用出现在当两个实例对象相互拥有强引用关系的时候，这会造成内存泄露，原因是这两个对像都不会被释放。只要一个对象被另一个对象强引用，那么该对象就不能被释放，由于强引用的存在，每个对象都会保持对方存在。
+
+解决这个问题的方法是，用weak或者unowned引用代替其中一个的强引用，来打破循环引用。
+
+###### **问题5- Swift 2.0 or later**
+
+Swift2.0 增加了一个新的关键字来实现递归枚举。下面的例子是一个枚举类型，它在Node条件下有两个相关联的值类型T和List：
+
+```swift
+enum List{
+
+ case Node(T, List)
+
+}
+```
+
+什么关键字可以实现递归枚举？
+
+答案：indirect 关键值可以允许递归枚举，代码如下：
+
+```swift
+enum List{
+
+ indirect case Cons(T, List)
+
+}
+```

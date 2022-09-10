@@ -5,7 +5,7 @@
 ###### 1: 讲讲你对atomic & nonatomic的理解
 
 答：nonatomic：非原子操作，决定编译器生成的setter getter是否是原子操作,不会为setter方法加锁。系统自动生成的   getter/setter   方法不一样。如果自己写   getter/setter  ，那   atomic/nonatomic/retain/assign/copy   这些关键字只起提示作用，写不写都一样。线程不安全  ,如有两个线程访问同一个属性，会出现无法预料的结果.
-atomic  和  nonatomic  用来决定编译器生成的  getter  和  setter  是否为原子操作。在多线程环境下，原子操作是必要的，否则有可能引起错误的结果。
+atomic  和  no`natomic  用来决定编译器生成的  getter  和  setter  是否为原子操作。在多线程环境下，原子操作是必要的，否则有可能引起错误的结果。
  对于  atomic  的属性，  atomic  表示多线程安全，  atomic  意为操作是原子的，系统生成的   getter/setter   会保证   get  、  set   操作的完整性，不受其他线程影响。
 比如，线程   A   的   getter   方法运行到一半，线程   B   调用了   setter  ：那么线程   A   的   getter   还是能得到一个完好无损的对象。意味着只有一个线程访问实例变量  (  生成的  setter  和  getter  方法是一个原子操作  )  而  nonatomic  就没有这个保证了。所以，  nonatomic  的速度要比  atomic  快  ;  不过  atomic  可并不能保证线程安全。如果线程   A   调了   getter  ，与此同时线程   B   、线程   C   都调了   setter——  那最后线程   A get   到的值，  3  种都有可能：可能是   B  、  C set   之前原始的值，也可能是   B set   的值，也可能是   C set   的值。同时，最终这个属性的值，可能是   B set   的值，也有可能是   C set   的值  . 
 
@@ -53,7 +53,8 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 
 ###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
 
-答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，key是所指对象的地址，value是weak指针的地址（这个地址的值是所指对象的地址）数组。为什么value是数组？因为一个对象可能被多个弱引用指针指向。 weak 的实现原理可以概括一下三步：1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。2、添加引用时：objc_initWeak函数会调用objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表。3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，最后清理对象的记录。浅谈iOS之weak底层实现原理
+答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 
+Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，key是所指对象的地址，value是weak指针的地址（这个地址的值是所指对象的地址）数组。为什么value是数组？因为一个对象可能被多个弱引用指针指向。 weak 的实现原理可以概括一下三步：1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。2、添加引用时：objc_initWeak函数会调用objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表。3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，最后清理对象的记录。浅谈iOS之weak底层实现原理
 
 1、Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。具体过程如下1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。2、添加引用时: objc_initWeak函数会调用objc storeWeak(0函数,更新指针指向,创建对应的弱引用表。3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？当释放对象时，其基本流程如下：1、调用objc_release2、因为对象的引用计数为0，所以执行dealloc3、在dealloc中，调用了objc_rootDealloc函数4、在objc_rootDealloc中，调用了object_dispose函数5、调用objc_destructInstance6、最后调用objc_clear_deallocating,详细过程如下：a. 从weak表中获取废弃对象的地址为键值的记录b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nilc. 将weak表中该记录删除d. 从引用计数表中删除废弃对象的地址为键值的记录
 
@@ -110,7 +111,17 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 
 ###### 10:property的作用是什么，有哪些关键词，分别是什么含义？
 
-答：
+答：关键字有strong，weak，assign，copy，nonatomic，atomic，readonly,readwrite,getter，setter。
+strong：释放旧对象将旧对象的值赋予输入对象，再提高输入对象的索引计数为1，常使用在继承自NSObject的类
+weak：weak不增加对对象的引用计数，也不持有对象，因此不能决定对象的释放。它比assign多了一个功能，当对象消失后自动把指针变成nil
+assign：简单赋值，不更改索引计数，适用于基础数据类型（NSInteger CGFloat）和C数据类型（int float double char 等）简单数据类型。
+copy：建立一个索引计数为1 的对象然后释放旧对象  对NSString它指出，在赋值时使用传入值的一份拷贝，拷贝工作由copy方法执行，此属性只对那些实行了NSCopying协议的对象类型有效。
+nonatomic：非原子性访问对于属性赋值的时候不加锁，多线程并发访问会提高性能，如果不加此属性则默认是两个访问方法都为原子型事务访问。
+atomic：和 nonatomic用来决定编译器生成的getter和setter是否为原子操作，atomic 设置成员变量的@property属性时  默认为是atomic 提供线程安全。在多线程环境下，原子操作是必要的否则会引起错误的结果。
+readonly：此标记说明属性是只读的 
+readwrite：此标记说明属性会被当成读写的 这也是默认的属性
+getter：指定 get 方法，并需要实现这个方法。必须返回与声明类型相同的变量，没有参数
+setter：指定 set 方法，并需要实现这个方法。带一个与声明类型相同的参数，没有返回值（返回空值）
 
 ###### 11: 父类的property是如何查找的？
 
@@ -122,7 +133,13 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 
 ###### 13: copy和muteCopy有什么区别，深复制和浅复制是什么意思，如何实现深复制？
 
-答：
+答：1.不可变类型(不管是集合还是非集合),copy结果，不产生新对象，浅拷贝；
+不可变类型(不管是集合还是非集合),mutableCopy结果，产生新对象，深拷贝.
+2.可变类型(不管是集合还是非集合),copy结果，产生新对象，深拷贝；
+可变类型(不管是集合还是非集合),mutableCopy结果，产生新对象，深拷贝.
+3.对不可变类型（NString、NSArray、NSSet），要用copy修饰；
+4.可变类型（NSMutableString、NSMutableArray、NSMutableSet）,要用strong修饰;
+5.用copy还是strong修饰一个属性时，与深拷贝浅拷贝不要混为一谈了，是两码事。
 
 ###### 14: 用runtime做过什么事情？runtime中的方法交换是如何实现的？
 
@@ -139,6 +156,13 @@ block可以直接修改 全局和静态变量 ，不会copy该变量的值.
 不加__block, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
 _使用_block ,MRC环境block中不会对原来的指针进行copy，所以可以更改属性，也可以更改对象本身 ；而ARC环境则是对原对象的copy，内存地址也发生变化
 block所起到的作用就是只要观察到该变量被 block 所持有,就将“外部变量”在栈中的内存地址放到了堆中。进而在block内部也可以修改外部变量的值,
+一、block 的三种类型
+block 三种类型:全局 block，堆 block、栈 block。
+全局 block(NSGlobalBlock)：没有访问外界局部变量的 block 就是全局 block，存储在全局区。
+堆 block(NSMallocBlock)：对栈 block 进行 copy 操作返回的就是堆 block，存储在堆区。
+栈 block(NSStackBlock)：访问了外界普通局部变量的 block 就是栈 block，存储在栈区。
+二、block 建议用 copy 而不用 retain/strong 的原因
+block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/strong/copy 等修饰词修饰。但是 block 在创建的时候内存默认分配在栈上，而不是堆上的。所以它的作用域仅限创建时候的作用域内，当你在该作用域外调用该 block 时，程序就会崩溃
 
 ###### 17: 说一下对GCD的了解，它有那些方法，分别是做什么用的？
 
@@ -207,29 +231,34 @@ dispatch_async(queue, ^{
 bookName的声明中指定属性nonatomic，表示为非线程安全的，set方法没有上锁。多线程同时进入到set方法进行操作时会引发问题，只要改换为atomic即可避免该问题,那为什么使用nonatomic就不行？多线程同时进入set方法执行时为什么会出错？原因也很简单，因为在ARC下编译器自动生成的set方法中，需要先对之前持有的对象进行release释放操作，如果此时没有加锁，就有可能发生多个线程执行同一段代码，导致release语句被执行了多次，从而导致对同一块内存多次发送release消息，导致的对已经回收的内存进行重复回收，即会报错。
 如果修改为：就不会报错
 [p1 setBookName:[NSString stringWithFormat:@"1234 %d",i]];
-苹果当中为了节省内存和提高执行效率，提出的一种Tagged Pointer的概念，在8个字节之内能存放的范围之内，系统就会以Tagged Pointer的方式生成指针，如果 8 字节承载不了就会用普通的方式来生成普通指针。这个TaggedPointer与普通指针不同，普通指针是一个变量，存放在栈上，其内容是一块内存块的基地址，所以说指针指向一个内存块，但TaggedPointer并不是一个真正的对象，实际上他的内容就是真正的值，而不是内存地址，所以他本质上就是一个普通变量，也不持有某个内存块。所以在set方法中，对这样的并没有持有内存块的普通变量进行赋值是不需要提前release的，是完全没有问题的，所以不会报错。		
+苹果当中为了节省内存和提高执行效率，提出的一种Tagged Pointer的概念，在8个字节之内能存放的范围之内，系统就会以Tagged Pointer的方式生成指针，如果 8 字节承载不了就会用普通的方式来生成普通指针。这个TaggedPointer与普通指针不同，普通指针是一个变量，存放在栈上，其内容是一块内存块的基地址，所以说指针指向一个内存块，但TaggedPointer并不是一个真正的对象，实际上他的内容就是真正的值，而不是内存地址，所以他本质上就是一个普通变量，也不持有某个内存块。所以在set方法中，对这样的并没有持有内存块的普通变量进行赋值是不需要提前release的，是完全没有问题的，所以不会报错。
 
-28、view生命周期
-		答：view的创建：loadView    视图控制器(UIViewController)及其子类,无论是手写代码还是storyboard、xib肯定会调用loadView方法。其它的视图不会调用比如UIButton，UILabel等，因为他们不是视图控制器。下面是视图控制器被创建时会被调用的其它方法：    Storyboard/XIB会调用的方法:    	◦	initWithCoder    	◦	awakeFromNib：此时frame还没有完成。    手写代码调用的代码(必须是UIView比如自定义MDDButton : UIButton)    	◦	initWithCoder    initWithFrame，创建时init会被调用此方法(可以继承UIView，做下测试)，不过frame为0.除非显示调用此方法，frame才会有值，比如：[[MDDButton alloc] initWithFrame:CGRectMake(10, 10, 100, 40)];这样显示的调用frame不为0。    view采用懒加载的方式，只有用到view时才会被创建，即才会被调用 loadView ——>viewDidLoad这一系列函数        iOS6及以后，内存警告时系统会回收ViewController的View的CALayer里的BitMap（CABackingStore类型，它的内容是直接用于渲染到屏幕，它是View消耗内存的大户）。view和calayer占的内存极少， 数量级也就在byte和kbyte之间，所以系统只回收了BitMap，但是这里所谓的回收只是给BitMap占用的内存打了一个volatile标记表明这部分内存是可能随时被其它数据占用,平时没内存警告时正在使用的内存标记为In use，完全被释放回收的标记为Not in use。概括起来也就是说：iOS6及以后的内存警告时，系统会给用于渲染视图的数据(BitMap)内存打一个volatile， ViewController的View的架子结构并不会回收，当View再次被访问时，虽然View的架子结构会用重建，但触发drawRect来渲染界面时，如果view对应的BitMap数据内存没有被占用则会被View的drawRect方法直接渲染出来且内存被标记为in use，从而这块内存又可以独享了；如果已被其它数据占用，那么BitMap必须要重建。所以可以看到整个重建过程不再是由loadView来做的，它是通过对view的访问来触发的。但是，请注意， 如果说在iOS6及以后ViewController的loadView方法只会被调用一次，这种说法是不完全准确的。因为：如果在didReceiveMemoryWarning里把ViewController的View也回收了([self.view removeFromSuperview];self.view = nil;)，那么当再次有对View访问时，loadView会被调用以进行完全最彻底的重建(想想也是，ViewController的View都没了，不调loadView来重建那怎么办呢)。    viewDidLoad    加载到内存完成后会调用此函数，在视图切换中，只要控制器不从内存中移除此方法就不会被调用。一般在此方法中添加一些子控件，设置视图的初始属性等等，类似初始化。    viewWillAppear    即将加载到窗口时调用此方法。一般在此方法做一些较为耗时的。这样就可以先显示基本的视图，呈现给用户(让用户感觉不是那么卡)，然后再显示比较耗时的。以免显示一个白屏给用户。    viewDidAppear    视图已经加载到窗口时调用。    
-		◦	viewWillDisappear－视图即将消失、被覆盖或是隐藏时调用；    	
-		◦	viewDidDisappear－视图已经消失、被覆盖或是隐藏时调用；    	
-		◦	viewVillUnload－当内存过低时，需要释放一些不需要使用的视图时，即将释放时调用；    	
-		◦	viewDidUnload－当内存过低，释放一些不需要的视图时调用。    
+###### NSOperationQueue最大并发量是多少	
+
+答：创建操作时，应使用 NSOperationQueueDefaultMaxConcurrentOperationCount 操作系统决定最大操作数-它会根据可用的硬件和系统资源来决定。该数字当然会因设备而异
+
+###### 28、view生命周期
+
+​		答：view的创建：loadView    视图控制器(UIViewController)及其子类,无论是手写代码还是storyboard、xib肯定会调用loadView方法。其它的视图不会调用比如UIButton，UILabel等，因为他们不是视图控制器。下面是视图控制器被创建时会被调用的其它方法：    Storyboard/XIB会调用的方法:    	◦	initWithCoder    	◦	awakeFromNib：此时frame还没有完成。    手写代码调用的代码(必须是UIView比如自定义MDDButton : UIButton)    	◦	initWithCoder    initWithFrame，创建时init会被调用此方法(可以继承UIView，做下测试)，不过frame为0.除非显示调用此方法，frame才会有值，比如：[[MDDButton alloc] initWithFrame:CGRectMake(10, 10, 100, 40)];这样显示的调用frame不为0。    view采用懒加载的方式，只有用到view时才会被创建，即才会被调用 loadView ——>viewDidLoad这一系列函数        iOS6及以后，内存警告时系统会回收ViewController的View的CALayer里的BitMap（CABackingStore类型，它的内容是直接用于渲染到屏幕，它是View消耗内存的大户）。view和calayer占的内存极少， 数量级也就在byte和kbyte之间，所以系统只回收了BitMap，但是这里所谓的回收只是给BitMap占用的内存打了一个volatile标记表明这部分内存是可能随时被其它数据占用,平时没内存警告时正在使用的内存标记为In use，完全被释放回收的标记为Not in use。概括起来也就是说：iOS6及以后的内存警告时，系统会给用于渲染视图的数据(BitMap)内存打一个volatile， ViewController的View的架子结构并不会回收，当View再次被访问时，虽然View的架子结构会用重建，但触发drawRect来渲染界面时，如果view对应的BitMap数据内存没有被占用则会被View的drawRect方法直接渲染出来且内存被标记为in use，从而这块内存又可以独享了；如果已被其它数据占用，那么BitMap必须要重建。所以可以看到整个重建过程不再是由loadView来做的，它是通过对view的访问来触发的。但是，请注意， 如果说在iOS6及以后ViewController的loadView方法只会被调用一次，这种说法是不完全准确的。因为：如果在didReceiveMemoryWarning里把ViewController的View也回收了([self.view removeFromSuperview];self.view = nil;)，那么当再次有对View访问时，loadView会被调用以进行完全最彻底的重建(想想也是，ViewController的View都没了，不调loadView来重建那怎么办呢)。    viewDidLoad    加载到内存完成后会调用此函数，在视图切换中，只要控制器不从内存中移除此方法就不会被调用。一般在此方法中添加一些子控件，设置视图的初始属性等等，类似初始化。    viewWillAppear    即将加载到窗口时调用此方法。一般在此方法做一些较为耗时的。这样就可以先显示基本的视图，呈现给用户(让用户感觉不是那么卡)，然后再显示比较耗时的。以免显示一个白屏给用户。    viewDidAppear    视图已经加载到窗口时调用。    
+​		◦	viewWillDisappear－视图即将消失、被覆盖或是隐藏时调用；    	
+​		◦	viewDidDisappear－视图已经消失、被覆盖或是隐藏时调用；    	
+​		◦	viewVillUnload－当内存过低时，需要释放一些不需要使用的视图时，即将释放时调用；    	
+​		◦	viewDidUnload－当内存过低，释放一些不需要的视图时调用。    
 布局    我们能看到手机上的视图都是UIView还有它的子UIView，当然不能杂乱无章的显示。要进行布局，父UIView需要布局、排列这些子UIView。UIView提供了layoutSubviews方法来处理。    需要注意的是layoutSubviews方法由系统来调用，不能程序员来手动调用。可以调用setNeedsLayout方法进行标记，以保证在UI下个刷屏循环中系统会调用layoutSubviews。或者调用layoutIfNeeded直接请求系统调用layoutSubviews。    layoutSubviews的被调用的时机：    	
-		◦	addSubview会触发layoutSubviews，比如viewA add viewB，第一次添加A和B的layoutSubviews都会被调用，而第二次(viewA已经有了viewB)只调用viewB的    	
-		◦	view的Frame变化会触发layoutSubviews    	
-		◦	滚动一个UIScrollView会触发layoutSubviews    	
-		◦	旋转Screen会触发父UIView上的layoutSubviews    	
-		◦	改变transform属性时，当然frame也会变    	
-		◦	处于key window的UIView才会调用(程序同一时间只有一个window为keyWindow，可以简单理解为显示在最前面的window为keywindow)    最后总结一句话就是，有必要时才会调用，比如设置Frame值没有变化，是不会被调用的，很明显没有必要
+​		◦	addSubview会触发layoutSubviews，比如viewA add viewB，第一次添加A和B的layoutSubviews都会被调用，而第二次(viewA已经有了viewB)只调用viewB的    	
+​		◦	view的Frame变化会触发layoutSubviews    	
+​		◦	滚动一个UIScrollView会触发layoutSubviews    	
+​		◦	旋转Screen会触发父UIView上的layoutSubviews    	
+​		◦	改变transform属性时，当然frame也会变    	
+​		◦	处于key window的UIView才会调用(程序同一时间只有一个window为keyWindow，可以简单理解为显示在最前面的window为keywindow)    最后总结一句话就是，有必要时才会调用，比如设置Frame值没有变化，是不会被调用的，很明显没有必要
 
-###### 28、typeof 和 __typeof,typeof 的区别?
+###### 29、typeof 和 __typeof,typeof 的区别?
 
 - __typeof __() 和 __typeof() 是 C语言 的编译器特定扩展，因为标准 C 不包含这样的运算符。 标准 C 要求编译器用双下划线前缀语言扩展（这也是为什么你不应该为自己的函数，变量等做这些）
 - typeof() 与前两者完全相同的，只不过去掉了下划线，同时现代的编译器也可以理解。
   所以这三个意思是相同的，但没有一个是标准C，不同的编译器会按需选择符合标准的写法。
 
-###### 29、iOS内存管理方式
+###### 30、iOS内存管理方式
 
 Tagged Pointer（小对象）
 
@@ -289,7 +318,7 @@ struct {
 
 弱引用表也是一张哈希表的结构，其内部包含了每个对象对应的弱引用表 weak_entry_t，而 weak_entry_t 是一个结构体数组，其中包含的则是每一个对象弱引用的对象所对应的弱引用指针。
 
-###### 30、runtime 如何实现 weak 属性？
+###### 31、runtime 如何实现 weak 属性？
 
 weak 此特质表明该属性定义了一种「非拥有关系」(nonowning relationship)。为这种属性设置新值时，设置方法既不持有新值（新指向的对象），也不释放旧值（原来指向的对象）。
 
@@ -303,7 +332,7 @@ runtime 如何实现 weak 属性具体流程大致分为 3 步：
 
 3、释放时：调用 clearDeallocating 函数，clearDeallocating 函数首先根据对象地址获取所有 weak 指针地址的数组，然后遍历这个数组把其中的数据设为 nil，最后把这个 entry 从 weak 表中删除，最后清理对象的记录。
 
-###### 31、runtime如何通过selector找到对应的IMP地址？
+###### 32、runtime如何通过selector找到对应的IMP地址？
 
 每一个类对象中都一个对象方法列表（对象方法缓存）
 
@@ -315,7 +344,7 @@ runtime 如何实现 weak 属性具体流程大致分为 3 步：
 
 当我们发送一个消息给一个类时，这条消息会在类的Meta Class对象的方法列表里查找。
 
-###### 32.简述下Objective-C中调用方法的过程
+###### 33.简述下Objective-C中调用方法的过程
 
 Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
 
@@ -327,7 +356,7 @@ objc在向一个对象发送消息时，runtime库会根据对象的isa指针找
 
 但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
 
-###### 33、.load和initialize的区别
+###### 34、.load和initialize的区别
 
 两者都会自动调用父类的，不需要super操作，且仅会调用一次（不包括外部显示调用).
 
@@ -584,7 +613,47 @@ post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数
 
 ###### 3: 谈谈你对离屏渲染的理解？
 
-答：
+答：GPU把渲染好的的内容存放到离屏渲染缓冲区中，在离屏渲染缓冲区（OffscreenBuffer）中进一步做一些处理后，再提交到帧缓冲区（FrameBuffer）中。
+一般都是系统去触发，例如对layer层相关处理：包括圆角、阴影、mask等等。iOS系统扁平化后出现的高斯模糊也是利用离屏渲染方式 亦或 是一种主动行为，是为了提高复用的效率。通常是设置layer的shouldRasterize属性来实现。开启后，会将layer作为位图保存下来，下次直接与其他内容进行混合。这个保存的位置就是OffscreenBuffer中。这样下次需要再次渲染的时候，就可以直接拿来使用了。
+触发离屏渲染的原因：
+1、一个UIView上包含了多个图层并且为subviews设置内容(背景颜色、图片)，开启了圆角绘制 (layer.cornerRadis)
+2、需要进行裁剪的 layer (layer.masksToBounds / view.clipsToBounds)
+3、设置了组透明度为 YES，并且透明度不为 1 的 layer (layer.allowsGroupOpacity/ layer.opacity)
+4、添加了投影的 layer (layer.shadow*)
+5、采用了光栅化的 layer (layer.shouldRasterize)
+6、绘制了文字的 layer (UILabel, CATextLayer, Core Text 等)
+7、为UIView的layer.content设置内容，同时设置背景颜色，会触发离屏渲染
+
+发生原因解释：
+APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制距离较远的场景，然后用绘制距离较近的场景覆盖较远的部分。
+在没有设置圆角和maskToBounds的情况下进行图层绘制，一个图层被绘制进FramBuffer后就被丢弃了，接着绘制下一个图层，但是如果开启圆角和maskToBounds时，就会单独开辟另外一片区域OffScreenBuffer用来保存中间的状态，最终在OffScreenBuffer完成渲染，等待图层需要被显示的时候，然后从OffScreenBuffer给到FramBuffer进行显示。
+
+```swift
+    // 不会产生离屏渲染的方案
+    let imageView = UIImageView()
+    imageView.frame = .init(x: 100, y: 100, width: 60, height: 60)
+    // 设置背景颜色
+    imageView.backgroundColor = .red
+    // 设置圆角
+    imageView.layer.cornerRadius = 30
+    // 关闭 masksToBounds
+    imageView.layer.masksToBounds = false
+    view.addSubview(imageView)
+// 亦或
+    let imageView = UIImageView()
+    imageView.frame = .init(x: 100, y: 200, width: 60, height: 60)
+    imageView.backgroundColor = .red
+    imageView.layer.cornerRadius = 30
+    imageView.layer.masksToBounds = true
+    view.addSubview(imageView)
+// 亦或
+    let imageView = UIImageView()
+    imageView.frame = .init(x: 100, y: 400, width: 60, height: 60)
+    imageView.layer.cornerRadius = 30
+    imageView.layer.masksToBounds = true
+    imageView.image = UIImage(named: "avatar.jpg")
+    view.addSubview(imageView)
+```
 
 ###### 4: 如何降低APP包的大小
 
@@ -844,7 +913,9 @@ https://blog.csdn.net/MinggeQingchun/article/details/117471901
 
 ###### 动态链接到虚拟内存和machO文件及物理内存之间的地址映射转换吗？
 
+l lvm: 
 
+Clang:
 
 ###### C 语言
 int a,b;
@@ -919,6 +990,66 @@ NSLog(@"%d",yy);//10
 
 答：
 
+###### 1、介绍一下项目中flutter的运用?
+
+答：
+
+###### 2、flutter引擎方面?
+
+答：
+
+###### 3、flutter 三棵树以及联系?
+
+答：
+
+###### 4、封装一个组件的方式?
+
+答：
+
+###### 5、flutter与原生的交互?
+
+答：
+
+###### 6、原生的内存管理?
+
+答：
+
+###### 7、Dart 是如何实现多任务并行的?
+
+答：
+
+###### 8、await的原理?
+
+答：
+
+###### 9、future的原理?
+
+答：
+
+###### 10、原生HashMap ?
+
+答：
+
+###### 11、原生第三方库 okhttp等?
+
+答：
+
+###### 12、flutter setstate刷新机制?
+
+答：
+
+###### 13、flutter动画 自定义view?
+
+答：
+
+###### 14、flutter 状态管理 bloc?
+
+答：
+
+###### 15、事件循环?
+
+答：
+
 #### Swift知识
 
 ###### 1、Swift和Objective-C有什么区别？
@@ -970,8 +1101,10 @@ Objective-C中的常量(const)是编译期决定的，Swift中的常量(let)是�
 
 ###### 6、?，??的区别
 
-？用来声明可选值，如果变量未初始化则自动初始化nil；在操作可选值时，如果可选值时nil则不响应后续的操作；使用as?进行向下转型操作；
+？用来声明可选值，如果变量未初始化则自动初始化nil；在操作可选值时，如果可选值是nil则不响应后续的操作；使用as?进行向下转型操作；
 ?? 用来判断左侧可选值非空（not nil）时返回左侧值可选值，左侧可选值为空（nil）则返回右侧的值。
+
+? : Optional其实是个enum，里面有None和Some两种类型。其实所谓的nil就是Optional.None ， 非nil就是Optional.Some， 然后会通过Some(T)包装（wrap）原始值，这也是为什么在使用Optional的时候要拆包（从enum里取出来原始值）的原因。这里是enum Optional的定义（对于 Optional 值，不能直接进行操作，否则会报错）
 
 ###### 7、Swift中mutating的作用
 

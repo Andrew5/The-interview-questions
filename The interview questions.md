@@ -54,13 +54,12 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 ###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
 
 答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 
-Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，key是所指对象的地址，value是weak指针的地址（这个地址的值是所指对象的地址）数组。为什么value是数组？因为一个对象可能被多个弱引用指针指向。 weak 的实现原理可以概括一下三步：1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。2、添加引用时：objc_initWeak函数会调用objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表。3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，最后清理对象的记录。浅谈iOS之weak底层实现原理
 
 1、Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。具体过程如下1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。2、添加引用时: objc_initWeak函数会调用objc storeWeak(0函数,更新指针指向,创建对应的弱引用表。3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？当释放对象时，其基本流程如下：1、调用objc_release2、因为对象的引用计数为0，所以执行dealloc3、在dealloc中，调用了objc_rootDealloc函数4、在objc_rootDealloc中，调用了object_dispose函数5、调用objc_destructInstance6、最后调用objc_clear_deallocating,详细过程如下：a. 从weak表中获取废弃对象的地址为键值的记录b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nilc. 将weak表中该记录删除d. 从引用计数表中删除废弃对象的地址为键值的记录
 
 ###### 3: block 用什么修饰？strong 可以？
 
-答：block的本质是oc对象，可以通过获取class得知最终继承自NSObiect。block分为全局block保存在数据区，栈block保存在栈区，堆block保存在堆区。
+答：block的本质是oc对象，可以通过获取class得知最终继承自NSObject。block分为全局block保存在数据区，栈block保存在栈区，堆block保存在堆区。
 		block如果捕获了自动变量就是栈block，但是在arc环境下系统会对栈block进行copy操作，拷贝到堆区。在mrc下就是栈block，需要手动调用 copy操作拷贝到栈区。block要想修改变量就需要使用block。用block修饰的变量会被包装成对象。编译成c++文件后可以查看。在编译后的结构体中会持有被修饰的变量。如果是强类型结构体中也是强类型，如果是弱类型结构体中也是弱类型。而且结构体会有两个函数指针copy和dispose。block编译后如果捕获后的变量需要block来管理内存，那么 block的desc成员中也会有copy和dispose指针。**在修改被block修饰的方法中会通过forwarding指针去取，forwarding指针指向自己栈上的block如果被拷贝到堆上，栈上的forwarding会指向堆上的结构体。这样保障能够访问到正确的值**。然后内存管理方面主要是copy函数和 dispose函数。循环引用的解决手段就是打破强引用改为弱引用。(备注：这个很多地方有讲，block的本质和底层可以看objective-c高级编程这本书很详细)
 
 ###### 4: block 为什么能够捕获外界变量？ block  做了什么事？ 
@@ -94,7 +93,7 @@ Runtime维护了一个weak表，用于存储指向某个对象的所有weak指�
 
 ###### 7: RunLoop 的作用是什么？它的内部工作机制了解么？
 
-答：
+答：https://mp.weixin.qq.com/s/CTFWeNg6sZueKz8UkZEe2Q
 
 ###### 8: 苹果是如何实现 autoreleasepool的？为什么这么设计？
 
@@ -107,7 +106,13 @@ Runtime维护了一个weak表，用于存储指向某个对象的所有weak指�
 
 ###### 9: 谈谈你对 FRP (函数响应式) 的理解，延伸一下 RxSwift 或者 RAC ?
 
-答：
+答：FRP (Functional Reactive Programming) 是一种编程范式，其中函数和数据流是基本元素。在 FRP 中，函数对于输入流的响应是基于时间的，这种响应是可观察的。
+
+RxSwift 是一个用于 iOS 和 macOS 开发的 FRP 框架。它基于 ReactiveX（Rx）规范，提供了一组用于操作数据流的操作符。
+
+RAC (ReactiveCocoa) 是一个用于 iOS 和 macOS 开发的 FRP 框架。它提供了一组用于操作数据流的操作符。
+
+总的来说，FRP 是一种编程思想，而 RxSwift 和 RAC 则是具体的实现方式
 
 ###### 10:property的作用是什么，有哪些关键词，分别是什么含义？
 
@@ -125,11 +130,16 @@ setter：指定 set 方法，并需要实现这个方法。带一个与声明类
 
 ###### 11: 父类的property是如何查找的？
 
-答：
+答：在 iOS 中，父类的 property 是在子类中继承过来的。当一个子类对象访问其父类的 property 时，会直接在父类中查找该 property。如果父类中没有该 property，则会在父类的父类中查找该 property，以此类推。如果在所有父类中都找不到该 property，则会抛出一个异常。
+
+在 iOS 中，类继承采用单继承模型，即一个类只能有一个父类，而不像python中那样可以有多个父类。
 
 ###### 12: NSArray、NSDictionary应该如何选关键词？
 
-答：
+答：NSArray 是一种有序集合，它可以存储多个对象，并按照添加顺序维护元素的顺序。在使用 NSArray 时，关键词主要包括：objectAtIndex:、count、addObject:、removeObject:、containsObject:等。
+NSDictionary 是一种无序集合，它可以存储多个键值对。在使用 NSDictionary 时，关键词主要包括：objectForKey:、setObject:forKey:、count、allKeys、allValues等。
+
+总的来说，选择使用 NSArray 或 NSDictionary 取决于你的需求，如果需要按照添加顺序维护元素的顺序，可以使用 NSArray，如果需要根据键来查询元素，可以使用 NSDictionary。
 
 ###### 13: copy和muteCopy有什么区别，深复制和浅复制是什么意思，如何实现深复制？
 
@@ -143,11 +153,31 @@ setter：指定 set 方法，并需要实现这个方法。带一个与声明类
 
 ###### 14: 用runtime做过什么事情？runtime中的方法交换是如何实现的？
 
-答：
+答：用 Runtime 做的事情有很多，主要有以下几种：
 
-###### 15: 讲一下对KVC合KVO的了解，KVC是否会调用setter方法？
+1. 动态创建类和对象：通过 Runtime 可以动态创建类和对象，实现在运行时动态添加属性和方法。
+2. 消息转发：当调用一个对象的方法时，如果这个对象没有实现这个方法，Runtime 会自动转发这个消息。
+3. 方法交换：通过 Runtime 可以交换两个方法的实现，实现在运行时修改类的行为。
+4. 关联对象：Runtime 提供了一种机制，可以在运行时为对象添加额外的数据。
 
-答：
+方法交换是通过 Runtime 的函数 method_exchangeImplementations() 实现的。这个函数会将两个方法的实现互相交换。
+
+例如： Method method1 = class_getInstanceMethod([self class], @selector(method1)); Method method2 = class_getInstanceMethod([self class], @selector(method2)); method_exchangeImplementations(method1, method2);
+
+这个例子会交换 self 类的 method1 和 method2 的实现。
+
+但是需要注意，在进行方法交换时，需要确保交换的方法在同一个类中，并且调用的时候不会造成死循环。
+
+###### 15: 讲一下对KVC和KVO的了解，KVC是否会调用setter方法？
+
+答：KVC (Key-Value Coding) 和 KVO (Key-Value Observing) 是 iOS 开发中常用的两种机制。
+
+- KVC (Key-Value Coding) 是一种用于访问对象属性的机制，它可以通过字符串来访问对象的属性，而不需要使用属性的 setter 和 getter 方法。KVC 可以通过 valueForKey: 和 setValue:forKey: 方法来访问和修改对象的属性。
+- KVO (Key-Value Observing) 是一种用于监听对象属性变化的机制。当一个对象的属性发生变化时，KVO 会自动通知监听者，使用者可以在对应的方法里进行相应的处理。
+
+使用 KVC 和 KVO 可以使得代码更加简洁，同时使得代码更加灵活，能够让程序更加高效地访问和监听对象的属性变化。
+
+注意：使用 KVO 时需要在监听对象销毁时取消监听，否则会造成内存泄露。
 
 ###### 16: __block有什么作用
 
@@ -166,33 +196,147 @@ block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/st
 
 ###### 17: 说一下对GCD的了解，它有那些方法，分别是做什么用的？
 
-答：
+答：GCD (Grand Central Dispatch) 是 Apple 在 iOS 和 macOS 中提供的一种用于管理多线程和并发任务的技术。它是基于 C 语言的，使用起来简单高效。
+
+常用的 GCD 方法包括：
+
+- dispatch_async: 异步执行一个任务，该任务会在新的线程中执行。
+- dispatch_sync: 同步执行一个任务，该任务会在当前线程中执行。
+- dispatch_after: 延迟执行一个任务，该任务会在给定的时间后执行。
+- dispatch_group_async: 将一个任务添加到一个任务组中，可以在所有任务都完成后进行回调。
+- dispatch_barrier_async: 在并发队列中插入一个栅栏，在栅栏之前提交的任务和之后提交的任务可以并行执行，但是栅栏之前的任务必须等待栅栏之后的任务完成。
+- dispatch_apply: 并发执行一个循环任务，可以对一组数据进行并发处理。
+
+使用 GCD 可以使得代码更加简洁，同时能够更好地利用多核 CPU 的优势，提高程序的性能。
+
+注意：在使用 GCD 时需要注意线程安全的问题。
 
 ###### 18、ARC和MRC的区别，iOS是如何管理引用计数的，什么情况下引用计数加1什么情况引用计数减一？
 
-答：
+答：ARC (Automatic Reference Counting) 和 MRC (Manual Reference Counting) 是 iOS 中用于管理内存的两种机制。
+
+- MRC 是手动引用计数。在 MRC 中，开发者需要手动管理对象的引用计数，使用 retain、release、autorelease 等方法来管理对象的生命周期。
+- ARC 是自动引用计数。在 ARC 中，编译器会自动管理对象的引用计数。开发者不需要手动管理对象的生命周期，编译器会根据对象使用情况自动释放对象。
+
+在 iOS 中，系统使用引用计数来管理对象的生命周期。当一个对象的引用计数变为 0 时，系统会自动释放该对象。
+
+引用计数加1的情况有以下几种：
+
+- 当对象被创建时，引用计数为1
+- 当对象被赋值给一个变量时，引用计数加1
+- 当对象被添加到一个集合中时，引用计数加1
+- 当对象被 retain 方法所持有时，引用计数加1
+
+引用计数减1的情况有以下几种：
+
+- 当对象的引用计数为0时，系统会自动释放该对象
+
+- 当对象被重新赋值给一个变量时，引用计数减1
+
+- 当对象被从一个集合中删除时，引用计数减1
+
+- 当对象被 release 或 autorelease 方法所释放时，引用计数减1
+
+- 在 ARC 中，编译器会自动管理对象的引用计数。开发者不需要手动调用 retain、release、autorelease 等方法来管理对象的生命周期，编译器会根据对象使用情况自动释放对象。但是开发者可以使用 weak 和 unowned 关键字来处理循环引用问题。
+
+  总结：使用ARC可以减少代码编写量，不需要手动管理对象的生命周期，但是开发者需要注意循环引用的问题。
 
 ###### 19、在MRC下执行[object autorelease]会发生什么，autorelease是如何实现的？
 
-答：
+答：在 MRC 下，执行 [object autorelease] 会将对象添加到自动释放池中。在自动释放池被销毁之前，该对象会保留在内存中。当自动释放池销毁时，会自动调用该对象的 release 方法，减少该对象的引用计数。
+
+自动释放池是由 NSAutoreleasePool 类实现的。在程序运行时，会自动创建一个自动释放池，当程序运行到主线程的 runloop 的即将结束时，会自动销毁该自动释放池，并释放其中所有被 autorelease 方法所持有的对象。
+
+autorelease 方法实现原理如下：
+
+- 当对象被 autorelease 方法所持有时，会调用 retain 方法，将对象的引用计数加1。
+- 将对象添加到当前线程的自动释放池中。
+- 当自动释放池被销毁时，会自动调用该对象的 release 方法，减少该对象的引用计数。
 
 ###### 20、CoreAnimation是如何绘制图像的，动画过程中的frame能否获取到？
 
 答：
 
-###### 21、谈一下对Runlop的了解？
+###### 21、OC 中的三大特性怎么理解？
 
-答：
+答：Objective-C (OC) 是一种面向对象的编程语言,用于开发 iOS 和 macOS 应用. 下面是 OC 中三大特性的简要说明:
+
+1. 动态类型: OC 是一种动态类型语言,这意味着在运行时可以检查对象的类型并执行相应的操作.
+2. 消息传递: OC 是基于消息传递的语言,这意味着对象之间通信是通过发送消息来实现的. 对象的行为是由接收到的消息来决定的.
+3. 多继承: OC 支持多继承, 意味着一个类可以从多个父类继承方法和属性,但是由于 OC 中没有接口的概念，实际上是通过协议来实现的.
 
 ###### 22、OC如何实现多继承？（其实借助于消息转发，protocol和类别都可以间接实现多继承。）
 
-答：
+答：在 Objective-C 中，没有直接支持多继承的语法，但是可以通过消息转发、协议和类别来间接实现多继承的效果。
 
-###### 23、对设计模式有什么了解，讲一下其中一种是如何使用的。
+1. 消息转发
 
-答：
+Objective-C 支持动态消息转发，当一个对象收到一个无法识别的消息时，会调用其转发机制，在转发机制中可以重定向消息到另一个对象上。这样就可以让一个类“继承”另一个类的方法。
 
-###### 24、有没有哪个开源库让你用的很舒服，讲一下让你舒服的地方。
+1. 协议
+
+Objective-C 支持协议，它是一种特殊的接口，可以让一个类实现多个协议。通过实现多个协议，可以让一个类“继承”多个类的方法。
+
+1. 类别
+
+Objective-C 支持类别，它是一种特殊的接口，可以让一个类“扩展”另一个类的方法。通过多个类别，可以让一个类“继承”多个类的方法。
+
+总之,在 Objective-C 中，没有直接支持多继承的语法，但是可以通过消息转发、协议和类别来间接实现多继承的效果。消息转发可以让一个类重定向消息到另一个类上，协议和类别可以让一个类实现多个接口。这样就可以让一个类同时具有多个类的特性。
+
+###### 23、对设计模式有什么了解，讲一下其中一种是如何使用的？
+
+答：设计模式是软件工程中一种代码重用的方法，它是对软件开发中常见问题的抽象和模板化的解决方案。常用的设计模式有23种,如单例模式，工厂模式，装饰器模式，模板方法模式等.
+
+其中之一的设计模式是单例模式。
+
+单例模式是一种常用的设计模式，它确保一个类只有一个实例，并提供一个全局访问点。
+
+使用单例模式的好处是可以避免对象的重复创建和资源浪费，并且可以在系统中方便地访问它。
+
+使用方法:
+
+- 私有化构造器
+- 提供静态的访问方法
+
+```objective-c
+Copy code
+@implementation Singleton
+
++ (Singleton *)sharedInstance
+{
+    static Singleton *sharedSingleton = nil;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+				sharedSingleton = [[self alloc] init];
+		});
+	return sharedSingleton;
+}
+
+- (id)init {
+	if (self = [super init]) {
+		// 进行初始化
+	}
+	return self;
+}
+- (void)someMethod {
+	// 方法实现
+}
+@end
+```
+
+上面这段代码是一个简单的单例模式的实现示例，使用dispatch_once来确保在多线程环境下单例的唯一性。在这个例子中，可以通过调用 [Singleton sharedInstance] 来获取单例对象的实例。
+
+单例模式是一种常用的设计模式,可以避免对象的重复创建和资源浪费,并且可以在系统中方便地访问它.
+
+策略模式是一种行为型设计模式，它定义了算法族，分别封装起来，让它们之间可以互相替换，此模式让算法的变化独立于使用算法的客户。
+
+策略模式的意义：(testSingature_N/ViewController/test13)
+
+1. 将算法封装到独立的类中，使得它们可以相互替换。
+2. 避免多重条件转移语句。
+3. 提高算法的保密性和安全性。
+
+###### 24、有没有哪个开源库让你用的很舒服，讲一下让你舒服的地方？
 
 答：
 
@@ -347,14 +491,18 @@ runtime 如何实现 weak 属性具体流程大致分为 3 步：
 ###### 33.简述下Objective-C中调用方法的过程
 
 Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
-
 objc在向一个对象发送消息时，runtime库会根据对象的isa指针找到该对象实际所属的类
-
 然后在该类中的方法列表以及其父类方法列表中寻找方法运行
-
 如果，在最顶层的父类（一般也就NSObject）中依然找不到相应的方法时，程序在运行时会挂掉并抛出异常unrecognized selector sent to XXX
+但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会(+ (void)load 方法：这是在类加载到内存中时调用的方法，可以用来执行一些预处理工作。(void)initialize 方法：这是在类的第一次调用之前调用的方法，可以用来初始化类的状态。(void)dealloc 方法：这是在对象被销毁之前调用的方法，可以用来做一些清理工作。)，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
 
-但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
+首先，程序中会调用某个对象的方法，使用如下的语法：
+[object method];
+然后，Objective-C 的运行时系统会检查 object 所属的类，看是否有名为 method 的方法。
+如果类中存在该方法，运行时系统就会调用该方法，并将执行流程交给方法体。
+如果类中不存在该方法，运行时系统就会尝试在父类中寻找该方法。如果父类中也不存在该方法，运行时系统就会继续在父类的父类中查找，直到找到该方法或者查找到了根类为止。
+如果在整个继承链中都找不到该方法，程序就会抛出一个异常，终止程序的执行。
+如果找到了该方法，方法体就会被执行，直到方法执行完毕为止。
 
 ###### 34、.load和initialize的区别
 
@@ -394,9 +542,9 @@ load和initialize方法内部使用了锁，因此它们是线程安全的。实
 
 答：
 
-###### 6: 简述下 Objective-C 中调用方法的过程
+###### 6: 
 
-答：
+
 
 ###### 7: 能否想象编译后得到的类中增加实例变量？能否向运行时创建的类中添加实例变量？为什么？
 
@@ -462,7 +610,11 @@ http连接就是所谓的短连接，即客户端向服务器端发送一次请�
 
 ###### 8: 什么时候会出现死锁？如何避免？
 
-答：
+答：答：造成死锁的四个必要条件通常被称为“死锁的四个条件”，这四个条件是：互斥条件、请求与保持条件、不剥夺条件、循环等待条件。
+互斥条件：指进程对所分配到的资源进行排它性控制，即在一段时间内某资源仅为一个进程所占用。
+请求与保持条件：指进程已经保持至少一个资源，但又提出了新的资源请求，而该资源已被其他进程占有，此时请求进程阻塞，但又对自己已获得的资源保持不放。
+不剥夺条件: 指进程已获得的资源在末使用完之前不能强行剥夺，只能由获得该资源的进程自行释放。
+循环等待条件: 指在发生死锁时，必然存在一个进程——资源的环形链，即进程集合{P0, P1, P2, …, Pn}中的 P0正在等待一个P1占有的资源，P1正在等待P2占有的资源，…，而Pn正在等待已被P0占有的资源。
 
 ###### 9: 有哪几种锁？各自的原理？它们之间的区别是什么？
 
@@ -483,7 +635,8 @@ post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数
 
 ###### 13、为什么说子线程不能更新UI呢？
 
-​	答：UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。   
+​	答：
+UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。   
  		两个异步线程同时做某些操作 可能发生不被预期的情况：    
 ​	 	同时设置一个视图的背景图片很有可能因为当前图片被释放了两次导致应用程序的crash;   
  		同时设置一个视图的背景颜色很有可能渲染树显示的是颜色属性A，而此时的视图的逻辑树储存的是颜色属性B；   
@@ -808,15 +961,15 @@ APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制�
  **runtime**
   1、OC的动态性就是由runtime来支撑和实现的，方法的调用 其实都是转化为 objc_msgSend函数的调用
  数据结构：objc_object，objc_class，isa，class_data_bits_t，cache_t，method_t对象，类对象，元类对象消息传递
- 		 2、利用关联函数给分类添加属性
-  		3、遍历类的成员变量以及方法
-  		4、交换系统方法
- 		 5、利用消息转发机制解决方法找不到的问题
+  2、利用关联函数给分类添加属性
+  3、遍历类的成员变量以及方法
+  4、交换系统方法
+  5、利用消息转发机制解决方法找不到的问题
   首先判断消息接收者是否为nil 如果为空直接退出
  1、去自己类的方法缓存列表中查找该方法如果找到则执行该方法，resolveInstanceMethod class
  2、否则去自己类的方法列表中查找该方法 如果找到先缓存该方法然后再执行，
  3、否则去自己父类的方法缓存列表中查找该方法 如果找到先缓存该方法到
- 自己类中，然后执行该方法，
+ 自己类中，然后执行该方法
  4、否则去自己父类的方法列表中查找该方法如果找到先缓存该方法到自己类中，
  然后执行该方法，自己没有能力处理这个方法 将此方法转交给别人类处理 执行消息转发机制。
  1、首先调用 forwardingTargetForSelector:方法 
@@ -954,9 +1107,33 @@ NSLog(@"%d",yy);//10
 
 遇到一个崩溃， bugly也不显示具体位置，然后 通过符号表， 地址偏移，逆向工程，查到了一个sdk的问题， 然后 我通过代码注入的方式，帮他修复了bug。
 
-###### flutter 事件循环
+- 我参与过的项目中，最能证明我能力的事情之一是我在一个应用中实现了一个性能瓶颈的优化。这个应用是一款社交应用，在某些情况下，它会变得非常缓慢。我使用Instruments工具来分析问题，发现是一个高频率的数据库操作导致的。我使用CoreData的子线程上下文来优化数据库操作，并使用GCD来管理线程，这样大大提高了应用的性能。
+- 另外一件事是我在一个项目中引入了MVVM架构，使得团队的开发效率大大提高。这个项目是一款金融应用，在之前的MVC架构下，我们发现代码难以维护和扩展。我提出使用MVVM架构来
 
-答：
+#### flutter 事件循环
+
+答：Flutter 使用事件循环来控制应用程序的流程。
+
+Flutter 的事件循环主要由两部分组成：
+
+- Flutter 引擎
+- Dart 虚拟机
+
+Flutter 引擎负责渲染界面、处理输入事件、调度动画等。Dart 虚拟机负责处理 Dart 代码的执行。
+
+事件循环的流程如下：
+
+1. Flutter 引擎首先执行一个循环，在该循环中会处理所有的输入事件、动画等。
+
+2. Flutter 引擎会将处理完的事件传递给 Dart 虚拟机，Dart 虚拟机会根据事件调用对应的 Dart 代码进行处理。
+
+3.  Dart 代码执行完成后，Flutter 引擎会根据 Dart 代码的执行结果来更新界面。
+
+4. 更新完界面后，Flutter 引擎会将新的界面渲染到屏幕上。
+
+5. 一次事件循环结束后，等待下一次事件处理。
+
+   这样的事件循环机制保证了 Flutter 程序的流程总是在控制之下，能够及时响应用户的输入并更新界面。
 
 ###### flutter 是单线程还是多线程
 
@@ -964,91 +1141,453 @@ NSLog(@"%d",yy);//10
 
 ###### Stream feature 的区别
 
-答：
+答：Flutter 中 Stream 是一种异步事件的处理机制，它可以用来处理来自不同来源的事件，如网络请求、定时器、用户输入等。
+
+Stream 有两种不同的实现方式：
+
+- Single-subscription stream
+- Broadcast stream
+
+Single-subscription stream 也称为单订阅流，在这种情况下，一个流只能被监听一次，并且只有一个订阅者能够接收到事件。
+
+Broadcast stream 也称为广播流，在这种情况下，一个流可以被多次监听，并且多个订阅者都可以接收到事件。
+
+总结：
+
+- Single-subscription stream 只能被订阅一次，只能有一个订阅者接收事件
+- Broadcast stream 可以被多次订阅，多个订阅者都可以接收事件
+
+在使用Stream的时候，需要根据需要来选择使用 Single-subscription stream 或是 Broadcast stream.
 
 ###### isolate有了解吗
 
-答：
+答：Flutter 中 isolate 是一种用于跨线程执行代码的机制。它可以在单独的线程中执行 Dart 代码，而不会影响主线程的性能。
+
+一个 isolate 拥有自己独立的内存空间，不会与其他 isolate 共享数据。这意味着在 isolate 中运行的代码是安全的，不会被其他 isolate 中的代码干扰。
+
+Flutter 中有两种方式来创建 isolate:
+
+- 使用 dart:isolate 库中的 Isolate.spawn() 方法
+- 使用 Flutter 提供的 IsolateNameServer.lookup() 方法
+
+isolate 主要用于处理计算密集型任务，如图像处理、大量数据的计算等，或是长时间的后台任务。使用 isolate 可以有效地提高应用程序的性能，并避免主线程的阻塞。
 
 ###### Stateless Widget和Stateful Widget区别
 
-答：
+答：Flutter 中有两种类型的 Widget：StatelessWidget 和 StatefulWidget。
+
+StatelessWidget 是不可变的，它的状态不会改变。当 StatelessWidget 的父 Widget 的状态发生变化时，Flutter 会重新构建该 Widget。
+
+StatefulWidget 是可变的，它的状态可以改变。当 StatefulWidget 的状态发生变化时，Flutter 只会对该 Widget 进行部分重绘。
+
+总结：
+
+- StatelessWidget 是不可变的，状态不会改变，在父widget状态改变时会被重构。
+
+- StatefulWidget 是可变的，状态可以改变，在状态改变时只会进行部分重绘。
+
+- 一般来说，如果 Widget 的状态不需要改变，使用 StatelessWidget 更加简单和高效，如果需要改变状态，则使用 StatefulWidget 更加合适。
+
+  另外, StatelessWidget 不能调用 setState方法，而StatefulWidget可以调用setState进行状态更新
+
+  选择正确的 Widget 类型，可以提高应用程序的性能和易用性。
 
 ###### StatefulWidget 的生命周期
 
 答：
 
+- createState: 创建并返回 State 对象
+
+- initState: 初始化 State 对象，在每次 build 方法之前调用
+
+- didChangeDependencies: 当 State 对象依赖变化时调用
+
+- build: 绘制 Widget
+
+- didUpdateWidget: 当 Widget 的配置变化时调用
+
+- dispose: 释放资源
+
+- createState: 当第一次构建时调用，返回一个新的 State 对象
+
+- initState: 当第一次构建完成后调用，可以在这里进行一些初始化工作
+
+- didChangeDependencies: 当 State 对象所依赖的 InheritedWidget 发生变化时调用
+
+- build: 绘制 Widget，返回当前 State 对象对应的 Widget
+
+- didUpdateWidget: 当 Widget 的配置发生变化时调用
+
+- dispose: 释放资源，在移除该 Widget 时调用，在这里可以进行一些清理工作。
+
+- 还有一个方法 setState, 这个方法用于更新状态,当状态改变时调用setState，会重新调用build方法进行更新。
+
+- 总结一下，生命周期方法主要有:
+
+  - createState: 创建并返回 State 对象
+  - initState: 初始化 State 对象
+  - didChangeDependencies: 当 State 对象依赖变化时调用
+  - build: 绘制 Widget
+  - didUpdateWidget: 当 Widget 的配置变化时调用
+  - dispose: 释放资源
+  - setState: 用于更新状态
+
+- 在开发中我们可以在这些生命周期方法中执行特定的操作，例如：
+
+  - 初始化：在 initState 方法中进行初始化操作
+  - 数据请求：在 didChangeDependencies 方法中进行数据请求
+  - 清理：在 dispose 方法中进行资源释放等清理操作。
+
+  这样做能够更好的组织代码，提高代码的可读性和可维护性。
+
 ###### 介绍下widget、state、context
 
-答：
+答：Widget是Flutter中的基本单元，用于描述应用程序的UI。在Flutter中，所有的东西都是一个widget。
+
+State是Flutter中的状态管理器。它维护着一些可变的数据，并且当这些数据发生改变时，可以触发UI重构。
+
+Context是Flutter中的上下文管理器。它为widget提供了额外的信息，比如主题、语言等。
 
 ###### Widget和element和RenderObject之间的关系
 
-答：
+答：Widget, Element 和 RenderObject是Flutter中用于构建UI的三种不同类型的对象。
 
-###### flutter是如何实现多任务并行的，谈谈Isolate理解
+Widget是用来描述UI元素的对象，它表示了一个可渲染的部件。它是一个不可变对象，可以被挂载到一个"widget tree"上。
 
-答：
+Element 是 Widget的一个实例，它是一个可变对象。 Element 中包含着Widget的配置信息，并且与一个RenderObject一一对应。当需要重绘时，会根据Element中的信息来重新构建对应的RenderObject.
+
+RenderObject是一个可渲染的对象，它是最终会在屏幕上呈现的对象。RenderObject并不直接对应一个Element，而是通过RenderBox来渲染。通常，RenderObject是用来渲染一组相关的内容，而RenderBox则是用来渲染单个元素。
+
+简单来说： Widget是一个描述性的对象，Element是一个具体实例化的对象，RenderObject是最终渲染的对象。
+
+###### flutter是如何实现多任务并行的?
+
+答：Isolate 是 Dart 中的一种并发单元，它可以独立于其他 Isolate 运行，并且每个 Isolate 都有自己的内存空间。Flutter 在渲染界面、执行 I/O 操作等场景中使用 Isolates 来实现多任务并行。
+
+在 Flutter 中，可以使用 `dart:isolate` 库中的 `Isolate` 类和 `Isolate.spawn` 方法来创建和启动新的 Isolate。
+
+举个例子:
+
+```dart
+  static void _longRunningTask() {
+    // do long running task here
+  }
+
+  void _startTask() {
+    Isolate.spawn(_longRunningTask, null);
+  }
+```
+
+这样可以在 _startTask 方法中调用 Isolate.spawn 方法来启动一个新的 Isolate，并在其中执行 _longRunningTask 方法。
+
+Flutter 框架也提供了一些高级的并发抽象,如 `Future` 和 `Stream`,这些抽象可以让开发者更加简单地实现多任务并行,更加简单易用。
+
+总之，Flutter 使用 Isolates 来实现多任务并行，开发者可以使用 `dart:isolate` 库中的 API或者是 Flutter 提供的高级并发抽象来实现多任务并行。
+
+在 Flutter 中，通常使用 Future 和 Stream 来实现多任务并行。
+
+Future 是一种异步编程模型，可以在将来的某个时刻获取一个值，或者是在某个操作完成后获取结果。
+
+Stream 是一种异步数据源，可以在将来的某个时刻发出一系列事件。
+
+举个例子:
+
+```dart
+Future<String> fetchData() async {
+    // Simulate a network request
+    return Future.delayed(Duration(seconds: 2),
+() => 'Data from the internet');
+}
+
+void someFunction() {
+fetchData().then((data) {
+// Do something with the data
+print(data);
+});
+}
+```
+
+在这个例子中,我们调用了fetchData() 这个异步函数，并在它返回结果之后使用then() 方法来处理返回的数据。
+
+Stream 也是一样,可以使用 StreamBuilder 或者是 Listenable 等组件来监听一个Stream,并在数据变化时进行响应。
+
+总之,Flutter 提供了丰富的并发抽象来让开发者更加简单地实现多任务并行,使用Future,Stream等抽象可以避免复杂的线程管理,提高开发效率.
 
 ###### 1、介绍一下项目中flutter的运用?
 
-答：
+答：在项目中使用 Flutter 时，可以考虑以下几点：
+
+- 选择正确的 Widget 类型，避免不必要的重绘
+- 使用 isolate 处理计算密集型任务
+- 使用 Stream 进行异步事件处理
+
+OC 与 Flutter 交互需要注意以下几点：
+
+- 需要使用 methodChannel 进行通信
+- 需要确保 iOS 和 Flutter 端使用相同的 method channel 名称
+- 需要在 iOS 端使用 flutter_viewcontroller 进行渲染
+- 需要在 Swift 端转换数据类型，以便与 Flutter 端进行交互
+
+注意:
+
+- 需要在 iOS 端使用 FlutterViewController 进行渲染， 使用 FlutterViewController 来渲染 flutter 页面，或者使用 FlutterEngine 来渲染 flutter 页面。
+
+- 需要确保 iOS 和 Flutter 端使用相同的 method channel 名称， 为了能在 iOS 与 flutter 之间进行通信,需要在 iOS 端和 flutter 端使用相同的 method channel 名称。
+
+- 需要在 Swift 端转换数据类型，Swift 与 Flutter 之间的数据交互可能需要进行类型转换。例如, Swift 中的 String 和 Flutter 中的 String 是不同类型的，在交互时需要进行转换。
+
+  在项目中使用Flutter 与原生语言交互时,需要注意这些细节,以便正确的实现交互并保证项目的正常运行.
 
 ###### 2、flutter引擎方面?
 
-答：
+答：Flutter的渲染引擎是基于Skia的。Skia是一个跨平台的2D图形库，它提供了丰富的图形接口。Flutter通过使用Skia作为渲染引擎，可以在多个平台上提供一致的图形效果。
+
+Flutter的热重载功能可以在开发过程中实时地看到代码更改的效果。当开发者修改代码时，Flutter会在不重启应用程序的情况下重新加载代码，并在UI上实时显示修改的效果。
+
+Flutter还提供了一个Dart虚拟机，可以在多个平台上运行Dart代码。Flutter应用程序是由Dart代码驱动的，并且Flutter框架本身也是由Dart代码编写的。
 
 ###### 3、flutter 三棵树以及联系?
 
-答：
+答：Flutter中的三棵树指的是框架的三个层次：widget树，元素树和渲染树。
+
+- widget树定义了用户界面的结构和布局，由widget组成，它是用户界面的基本构建块。
+- 元素树是从widget树创建的，表示用户界面的有状态元素。元素是框架创建的运行时对象，用于管理widget树中widget的状态和布局。
+- 渲染树是从元素树创建的，表示用户界面的视觉元素。渲染树由框架使用，将用户界面绘制到屏幕上。
+
+这三棵树是密切相关的，并协同工作来在Flutter中构建和呈现用户界面。widget树用于定义用户界面的结构和布局，元素树用于管理状态和布局，渲染树用于将用户界面呈现给用户。
 
 ###### 4、封装一个组件的方式?
 
-答：
+答：在 Flutter 中封装一个组件需要以下几步：
 
-###### 5、flutter与原生的交互?
+1. 创建一个新的 Dart 类，继承自 `StatefulWidget` 或 `StatelessWidget`。
+2. 在新类中定义组件的属性和状态。
+3. 实现组件的 `build` 方法，返回组件的布局。
+4. 在其他地方使用这个组件。
 
-答：
+下面是一个简单的例子：
+
+```dart
+class MyButton extends StatelessWidget {
+  final String text;
+  final Function onPressed;
+
+  MyButton({this.text, this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return RaisedButton(
+      child: Text(text),
+      onPressed: onPressed,
+    );
+  }
+}
+```
+
+在上面的例子中，我们创建了一个名为 `MyButton` 的组件。这个组件有两个参数：`text` 和 `onPressed`。在 `build` 方法中，我们返回了一个 `RaisedButton` 组件，将参数传给了它。
+
+现在可以在其他地方使用这个组件了。
+
+```dart
+MyButton(text: 'Click me', onPressed: () {
+  print('Button clicked');
+});
+```
+
+这样就可以通过调用 MyButton来使用这个组件了,可以根据实际需求来添加属性和方法,使用起来更加灵活。
 
 ###### 6、原生的内存管理?
 
-答：
+答：Flutter是一个跨平台的应用程序框架，它使用Dart语言来编写应用程序，并在各种平台上通过渲染器来呈现UI。由于Flutter是使用Dart语言编写的，因此内存管理主要是通过Dart语言来实现。
+
+Dart语言使用了垃圾回收来管理内存，它会自动检测并回收不再使用的内存。这意味着，在Dart中，开发人员不需要显式地释放内存，也不需要考虑内存泄漏的问题。
+
+然而,在Flutter中,需要特别关注的是在页面销毁时释放掉不用的资源和回收内存，例如监听器，动画和定时器等。如果不释放这些资源，它们可能会导致内存泄漏。
+
+此外,Flutter有一些工具来监控和优化应用程序的内存使用情况，如Flutter DevTools和Flutter Memory Inspection。
 
 ###### 7、Dart 是如何实现多任务并行的?
 
-答：
+答：Dart通过使用Isolates来实现多任务并行。Isolates是独立的Dart运行时环境，它们可以在不同的线程上运行，并且互相之间没有任何共享状态。
+
+使用Isolates可以在多个线程上并行执行多个任务，每个Isolate都有自己的堆和栈，并且运行在自己的线程上。这样可以有效的降低多线程竞争的问题。
+
+Isolates之间可以通过消息传递来进行通信，如果需要在Isolates之间共享数据，可以使用共享内存或者文件。
+
+Dart中主要是使用Future和Isolate来实现多任务并行， Future是用来处理异步任务返回值的对象，Isolate是独立的Dart运行时环境，它们可以在不同的线程上运行，并且互相之间没有任何共享状态。
 
 ###### 8、await的原理?
 
-答：
+答：`await` 是 Dart 中的一个关键字，用于等待一个异步操作的完成。
+
+在使用 `await` 等待一个异步操作时，程序会暂停当前函数的执行，等待该操作完成。完成后，程序会继续执行当前函数。
+
+它可以用来等待一个Future 对象的返回值,可以在异步操作的回调函数中使用.
+
+举个例子:
+
+```dart
+Future<String> fetchData() async {
+  // Simulate a network request
+  return Future.delayed(Duration(seconds: 2), () => 'Data from the internet');
+}
+
+Future<void> someFunction() async {
+  String data = await fetchData();
+  print(data);
+}
+```
+
+在这个例子中,使用await关键字等待fetchData()返回值,并在返回之后继续执行其他操作.
+
+总之,await 是 Dart 中用来等待异步操作的关键字,可以让代码更加简洁易读,使用await可以避免回调地狱的情况,使得代码更加结构化.
+
+在 Flutter 中，使用 await 可以让你在等待异步操作完成时不必打断程序的流程。这使得代码更加简洁易读，而且还能保证应用程序在等待异步操作完成时仍然能够响应用户输入等事件。
+
+另外,await 只能在 async 函数中使用,可以通过 async/await 来更好的管理异步操作.
 
 ###### 9、future的原理?
 
-答：
+答：Flutter中的Future是用来处理异步操作的对象。它表示一个异步操作的未来结果。当异步操作完成时，Future对象会将结果作为参数传递给回调函数。
+
+当你调用Future对象的then()方法时，它会立即返回，并将回调函数存储起来，等待异步操作完成。当异步操作完成时，Future对象会调用存储的回调函数，并将结果作为参数传递给它。
+
+可以使用async/await语法来简化异步操作的代码，使其看起来像同步代码。 async函数返回Future对象，而await关键字用于等待Future对象的结果。
+
+简单来说，Future是用来处理异步任务返回值的对象，比如网络请求，文件读写等异步操作会返回一个Future对象，可以使用then()或async/await来处理这个异步操作的返回值。
 
 ###### 10、原生HashMap ?
 
-答：
+答：在 Flutter 中，可以使用 dart:collection 中的 `HashMap` 来实现原生的 HashMap 功能。
+
+`HashMap` 是一种键值对的数据结构，其中键是唯一的。插入、查询、删除等操作的时间复杂度都是 O(1)。
+
+举个例子:
+
+```dart
+Copy code
+var map = HashMap<String, int>();
+map['first'] = 1;
+map['second'] = 2;
+print(map['first']); // 1
+```
+
+在上面的例子中,我们创建了一个 HashMap 对象,并使用了花括号语法来添加键值对,可以通过key来获取对应的值.
+
+AFNetwork 是一个 iOS 平台上的网络库,如果想在 flutter 中使用AFNetwork,需要通过使用 platform channel 来实现.
+
+Platform channel 是 Flutter 提供的一种跨平台通信机制，可以在 Dart 代码中调用原生代码，并在原生代码中调用 Dart 代码。
+
+首先,在 Dart 代码中创建一个 MethodChannel 对象,并在原生代码中对应注册对应的方法.
+
+然后,在 Dart 代码中调用 invokeMethod() 方法,传递参数给原生代码.
+
+原生代码收到参数后,使用AFNetwork进行网络请求,并将结果返回给Dart代码.首先,在 Dart 代码中创建一个 MethodChannel 对象
+
+```dart
+Copy code
+static const platform = const MethodChannel('com.example.afnetwork');
+```
+
+然后在原生代码中注册对应的方法
+
+```dart
+Copy code
+Future<String> makeNetworkRequest(String url) async {
+    final String result = await platform.invokeMethod('makeNetworkRequest', {'url': url});
+    return result;
+}
+```
+
+在原生代码中实现对应的方法
+
+```dart
+Copy code
+@override
+    Future<dynamic> onMethodCall(MethodCall call, Result result) {
+        switch (call.method) {
+            case "makeNetworkRequest":
+                String url = call.arguments["url"];
+                AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
+                [manager GET:url parameters:nil progress:nil success:^(NSURLSessionTask *task, id responseObject) {
+                    result.success(responseObject);
+                } failure:^(NSURLSessionTask *operation, NSError *error) {
+                    result.error("Error", error.localizedDescription, error);
+                }];
+                break;
+            default:
+                result.notImplemented();
+                break;
+        }
+    }
+```
+
+最后,在Dart代码中调用 makeNetworkRequest() 方法,传递参数给原生代码
+
+```dart
+Copy code
+String data = await makeNetworkRequest("https://jsonplaceholder.typicode.com/posts");
+```
+
+上面的代码仅是示例代码,在实际使用中需要根据具体情况进行修改,这里只是给出了思路.
+
+总之,使用platform channel 可以在flutter中使用AFNetwork进行网络请求,需要在Dart代码中调用原生代码,在原生代码中使用AFNetwork进行网络请求,并将结果返回给Dart代码.
+
+总之,flutter 不支持直接使用AFNetwork进行网络请求,需要通过platform channel 来实现,即在Dart代码中调用原生代码,使用AFNetwork进行网络请求,并将结果返回给Dart代码.
+
+总之, `HashMap` 是 Flutter 中用来实现原生 HashMap 功能的类,可以使用 dart:collection 中的 `HashMap` 来实现键值对数据结构,并进行插入,查询,删除等操作.
 
 ###### 11、原生第三方库 okhttp等?
 
-答：
+答：Flutter 支持使用原生第三方库，如 okhttp 等。
+
+通过使用 Dart 的 `dart:ffi` 和 `package:ffi` 库可以轻松地在 Flutter 中调用原生代码。
+
+首先，需要在 `pubspec.yaml` 中配置依赖，如：
+
+```dart
+Copy code
+dependencies:
+  okhttp: ^3.12.1
+```
+
+然后在 dart 代码中使用 import 导入 okhttp 库
+
+```dart
+Copy code
+import 'package:okhttp/okhttp.dart' as okhttp;
+```
+
+接着就可以使用 okhttp 库中的 API 来进行网络请求了.
+
+需要注意的是,如果需要使用原生第三方库，需要先在pubspec.yaml 中配置依赖,然后在dart代码中导入,最后就可以使用了.
+总之,flutter支持使用原生第三方库，如 okhttp，可以通过使用 Dart 的 `dart:ffi` 和 `package:ffi` 库来在 Flutter 中调用原生代码。使用步骤为配置依赖，导入库，使用库中的 API。这样可以让 Flutter 应用程序能够使用现有的原生第三方库来实现各种功能。
 
 ###### 12、flutter setstate刷新机制?
 
-答：
+答：Flutter的setState函数用于在更新组件状态时刷新UI。它接受一个回调函数，在回调函数中修改组件的状态，然后调用setState函数来通知Flutter框架进行重绘。当setState被调用时，Flutter会调用组件的build方法来重新构建UI，并在新的UI上显示更新后的状态。
 
 ###### 13、flutter动画 自定义view?
 
-答：
+答：在 Flutter 中，可以使用 AnimatedWidget 和 AnimatedBuilder 来创建自定义动画。
+
+AnimatedWidget 是一种特殊类型的小部件，它可以在动画期间自动重建自身。它需要一个 Animation 对象作为构造函数的参数，该对象包含动画运行时的信息。使用 AnimatedWidget 可以很容易地在动画期间更新部件的属性。
+
+AnimatedBuilder 是一种更灵活的动画建造器，它允许我们在动画期间重建任何小部件。它接受一个动画构建器函数作为参数，该函数接收当前动画运行时的信息并返回要重建的小部件。
+
+还可以使用AnimationController来控制动画的进度，以及Tween来定义动画的起始值和结束值。
+
+另外还有很多flutter内置的动画组件，如：FadeTransition,ScaleTransition,SizeTransition,RotateTransition,AnimatedPositioned,AnimatedPadding 等，可以根据需求使用。
 
 ###### 14、flutter 状态管理 bloc?
 
-答：
+答：BLoC (业务逻辑组件) 是一种常用于Flutter状态管理的设计模式。它由Google提出，基于可观察对象和流的概念。
 
-###### 15、事件循环?
+在 BLoC 模式中，应用程序的状态存储在独立的 BLoC 组件中，而不是在单个顶级组件中。这样的好处是将应用程序的业务逻辑和界面逻辑分开，使得应用程序更易于维护和测试。
 
-答：
+BLoC 组件通常由两个部分组成：事件处理器和状态流。事件处理器处理来自用户界面的事件，并将它们转换为状态更改。状态流是一个可观察对象，它将状态更改发布到用户界面以进行更新。
+
+BLoC 模式可以使用第三方库如 bloc 或 flutter_bloc来实现。 使用这些库可以减少手写代码，并使实现变得更简单。
 
 #### Swift知识
 
@@ -1084,6 +1623,8 @@ swiftc -emit-silgen -O example.swift
 添加static关键字函数使用直接派发
 添加dynamic关键字函数使用消息派发
 添加@objc关键字的函数使用消息派发
+@dynamic  和 @objc组合修饰函数使用直接派发
+extension 扩展的直接是静态派发
 添加@inline关键字的函数会告诉编译器可以使用直接派发
 
 ###### 4、Struct和Class的区别？
@@ -1094,6 +1635,8 @@ swiftc -emit-silgen -O example.swift
 4）Struct无法修改自身属性值，函数需要添加mutating关键字
 5）Struct不需要deinit方法，因为值类型不关系引用计数，Class需要deinit方法
 6）Struct初始化方法是基于属性的
+需要一种拥有动态特性（或者说多态特性）而且还得效率高速度快的一种数据结构，struct这个东西就被定制出来了， 动态性：struct+协议   效率高：栈存储
+优点：值类型，速度快、变量 方法 下标基本都能满足需求； 缺点： 不能继承了
 
 ###### 5、Swift中的常量和Objective-C中的常量有啥区别？
 
@@ -1516,7 +2059,7 @@ DispatchQueue.global(qos: .default).async {
 
 sync同步追加Block块 
 
-```
+```swift
 //同步追加Block块，与上面相反。在追加Block结束之前，sync函数会一直等待，等待队列前面的所有任务完成后才能执行追加的任务。
 //添加同步代码块到global队列
 //不会造成死锁，但会一直等待代码块执行完毕
@@ -1660,7 +2203,7 @@ Swift用optional扩展了在基本数据类型和引用类型中缺少值的概�
 
 例如，下面的代码中第二个函数就是复制第一个函数——它仅仅是用String类型代替了Integer类型。
 
-```text
+```swift
 func areIntEqual(x: Int, _ y: Int) -> Bool {
   return x == y
 }
@@ -1675,7 +2218,7 @@ areIntEqual(1, 1) // true
 
 Objective-C开发人员可能想到用NSObject类来解决这个问题，代码如下：
 
-```text
+```swift
 import Foundation
   
 func areTheyEqual(x: NSObject, _ y: NSObject) -> Bool {
@@ -1688,7 +2231,7 @@ areTheyEqual(1, 1) // true
 
 这个代码会按照预期的方式工作,但是它在编译时不安全。它允许字符串和整数相比较,像这样:
 
-```text
+```swift
 areTheyEqual(1, "ray")
 ```
 
@@ -1696,7 +2239,7 @@ areTheyEqual(1, "ray")
 
 通过采用泛型,可以合并这两个函数为一个并同时保持类型安全。下面是代码实现:
 
-```text
+```swift
 func areTheyEqual(x: T, _ y: T) -> Bool {
   return x == y
 }
@@ -1858,7 +2401,6 @@ class Box{
     self.value = value
   }
 }
-  
 enum Either{
   case Left(Box)
   case Right(Box)
@@ -1909,9 +2451,7 @@ Swift2.0 增加了一个新的关键字来实现递归枚举。下面的例子�
 
 ```swift
 enum List{
-
  case Node(T, List)
-
 }
 ```
 
@@ -1921,8 +2461,10 @@ enum List{
 
 ```swift
 enum List{
-
  indirect case Cons(T, List)
-
 }
 ```
+
+**问题6- Swift嵌套函数在哪存的什么地方** 
+答：Swift中的嵌套函数是存储在调用它的外部函数中的. 它们只能在外部函数的内部访问,并不能在外部函数外部访问.(嵌套函数只能在它所嵌套在的外部函数中被调用和使用,不能在外部函数外部被直接调用或使用. 外部函数必须先被调用才能使嵌套函数可用. 例如,如果有一个名为 outerFunction() 的外部函数和一个名为 nestedFunction() 的嵌套函数,那么在 outerFunction() 外部调用 nestedFunction() 是不允许的,但是在 outerFunction() 内部调用 nestedFunction() 是允许的。)
+

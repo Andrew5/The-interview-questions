@@ -299,7 +299,7 @@ Objective-C 支持类别，它是一种特殊的接口，可以让一个类“�
 - 提供静态的访问方法
 
 ```objective-c
-Copy code
+
 @implementation Singleton
 
 + (Singleton *)sharedInstance
@@ -1465,7 +1465,7 @@ Future<void> someFunction() async {
 举个例子:
 
 ```dart
-Copy code
+
 var map = HashMap<String, int>();
 map['first'] = 1;
 map['second'] = 2;
@@ -1485,14 +1485,14 @@ Platform channel 是 Flutter 提供的一种跨平台通信机制，可以在 Da
 原生代码收到参数后,使用AFNetwork进行网络请求,并将结果返回给Dart代码.首先,在 Dart 代码中创建一个 MethodChannel 对象
 
 ```dart
-Copy code
+
 static const platform = const MethodChannel('com.example.afnetwork');
 ```
 
 然后在原生代码中注册对应的方法
 
 ```dart
-Copy code
+
 Future<String> makeNetworkRequest(String url) async {
     final String result = await platform.invokeMethod('makeNetworkRequest', {'url': url});
     return result;
@@ -1502,7 +1502,7 @@ Future<String> makeNetworkRequest(String url) async {
 在原生代码中实现对应的方法
 
 ```dart
-Copy code
+
 @override
     Future<dynamic> onMethodCall(MethodCall call, Result result) {
         switch (call.method) {
@@ -1525,7 +1525,7 @@ Copy code
 最后,在Dart代码中调用 makeNetworkRequest() 方法,传递参数给原生代码
 
 ```dart
-Copy code
+
 String data = await makeNetworkRequest("https://jsonplaceholder.typicode.com/posts");
 ```
 
@@ -1546,7 +1546,7 @@ String data = await makeNetworkRequest("https://jsonplaceholder.typicode.com/pos
 首先，需要在 `pubspec.yaml` 中配置依赖，如：
 
 ```dart
-Copy code
+
 dependencies:
   okhttp: ^3.12.1
 ```
@@ -1554,7 +1554,7 @@ dependencies:
 然后在 dart 代码中使用 import 导入 okhttp 库
 
 ```dart
-Copy code
+
 import 'package:okhttp/okhttp.dart' as okhttp;
 ```
 

@@ -255,7 +255,11 @@ autorelease 方法实现原理如下：
 
 ###### 20、CoreAnimation是如何绘制图像的，动画过程中的frame能否获取到？
 
-答：
+答：CoreAnimation是iOS中图像绘制的核心动画框架，它的绘制过程是通过动画层（CALayer）和动画类（CAAnimation）来实现的。动画过程中，每一帧都会调用绘制函数，在绘制函数中会使用图层树结构来进行绘制。
+
+动画过程中的frame能够获取到，通过对动画层的presentationLayer属性，可以获取当前显示在屏幕上的图层，从而获取到当前帧的frame值。
+
+如果需要在动画过程中实时获取frame值，可以通过Core Animation的代理方法实现，或者使用KVO监听动画过程中的变化。
 
 ###### 21、OC 中的三大特性怎么理解？
 
@@ -524,15 +528,22 @@ load和initialize方法内部使用了锁，因此它们是线程安全的。实
 
 ###### 1: 什么是 isa，isa 的作用是什么？
 
-答：
+答：isa 是 Objective-C 中继承和多态的基础。
+isa 是 Objective-C 中一个特殊的指针，用来表示一个对象的类信息。它是存储在每个对象中的，用来标识对象的类型。
+
+isa 的作用是在运行时动态确定对象的类型，以便于消息转发（Message Forwarding）、多态（Polymorphism）和内存管理（Memory Management）等功能的实现。
 
 ###### 2: 一个实例对象的isa 指向什么？类对象指向什么？元类isa 指向什么？
 
-答：
+答：一个实例对象的 `isa` 指针指向该实例对象的类对象。类对象的 `isa` 指针指向该类的元类。元类的 `isa` 指针指向基类的元类，一直到根元类 `NSObject`。
 
 ###### 3: objc中类方法和实例方法有什么本质区别和联系？
 
-答：
+答：类方法：类方法是作用在类上的方法，可以通过类名直接调用，不需要创建实例对象。类方法通常用于实现工厂方法、创建单例对象等。类方法的声明方式是在方法前面加上 `+` 号。
+
+实例方法：实例方法是作用在实例对象上的方法，必须通过创建的实例对象调用，访问对象的内部数据等。实例方法的声明方式是在方法前面加上 `-` 号。
+
+联系：类方法和实例方法都是类的成员，可以直接访问类的其他成员（包括类变量、实例变量、其他方法等），但是对于其他类的访问权限要遵守封装原则。
 
 ###### 4: load 和 initialize 的区别？
 
@@ -540,19 +551,35 @@ load和initialize方法内部使用了锁，因此它们是线程安全的。实
 
 ###### 5: _objc_msgForward 函数是做什么的？直接调用会发生什么问题？
 
+答：_objc_msgForward 函数是 Objective-C 的消息转发机制的一部分，在 Objective-C 的运行时中被调用。当程序试图调用一个没有实现的方法时，运行时系统会调用 _objc_msgForward 函数来对该方法进行动态转发，以便能够在运行时进行实现。
+
+直接调用 _objc_msgForward 函数是不安全的，因为该函数是内部 Objective-C 运行时实现的一部分，具体的实现和调用方法可能会有所变化。如果直接调用，则会导致程序崩溃或不可预期的行为。
+
+###### 6: Url输入到浏览器后都做了哪些工作？
+
 答：
 
-###### 6: 
-
-
+1. 解析URL：浏览器会分析URL，并将其分成主机名、协议和资源路径等部分。
+2. 构建DNS请求：浏览器会请求DNS服务器，解析URL对应的主机名为IP地址。
+3. 建立连接：浏览器根据解析出的IP地址与Web服务器建立连接，连接的方式取决于协议，例如HTTP或HTTPS。
+4. 发送请求：浏览器向Web服务器发送请求，请求内容包括资源的路径、请求方式（例如GET或POST）等。
+5. 接收响应：Web服务器向浏览器返回响应，响应内容可以是HTML、图像、音频等。
+6. 解析内容：浏览器对返回的内容进行解析，并将其呈现在用户界面上。
+7. 缓存：浏览器会根据响应头中的Cache-Control字段决定是否缓存内容，以便于下次快速访问。
 
 ###### 7: 能否想象编译后得到的类中增加实例变量？能否向运行时创建的类中添加实例变量？为什么？
 
-答：
+答：在 iOS 开发中，编译后生成的类是不能添加实例变量的。这是因为编译后生成的类已经经过了编译器静态检查，已经固定了类的内部结构和实现。
+
+然而，在运行时，可以通过 Objective-C 运行时系统向运行时创建的类中添加实例变量。但是，在实际开发中，这种做法是不推荐的，因为它不是安全的，并且容易导致不可预知的问题。如果需要为类添加实例变量，应该使用继承或关联对象。
 
 ###### 8: 谈谈你对切面编程的理解
 
-答：
+答：是面向对象编程的一种补充。AOP的目的是将程序中的横切关注点（cross-cutting concerns）从核心业务逻辑代码中分离出来。这些横切关注点包括日志记录，安全性，事务管理等。使用AOP的目的是使代码结构更加清晰，提高代码的可维护性和可读性。
+
+AOP通过使用切面（aspect）来管理这些横切关注点。切面是一个独立的组件，其中定义了要在程序中增加的行为。切面可以通过在方法执行前，方法执行后或方法执行过程中插入代码来实现。这些代码称为通知（advice），它们可以在方法执行时被自动调用。
+
+通过使用AOP，开发人员可以更好地管理应用程序的复杂性，并且可以通过提高代码的重用性来提高开发效率。在很多情况下，使用AOP可以帮助避免在业务代码中包含过多的关注点，并且可以使代码结构更加清晰，使开发人员能够更容易地维护和扩展代码。
 
 ###### 9: 消息转发机制实现过程？
 
@@ -574,11 +601,32 @@ load和initialize方法内部使用了锁，因此它们是线程安全的。实
 
 ###### 1: HTTP的缺陷是什么？
 
-答：
+答：HTTP是一种应用层协议，主要用于客户端和服务器之间进行数据交换。它的缺陷包括：
+
+1. 无状态：HTTP是一种无状态协议，不能保持客户端与服务器间的状态信息。
+2. 不安全：HTTP是一种明文传输协议，数据易被窃取或篡改。
+3. 无控制：HTTP并没有提供流量控制和拥塞控制机制，可能会导致网络阻塞。
+4. 效率低下：HTTP需要频繁建立和销毁连接，带来了额外的开销和时间浪费。
+5. 缺少认证机制：HTTP并不提供认证机制，因此不能保证客户端和服务器间的安全性。
 
 ###### 2: 谈谈三次握手，四次挥手！为什么是三次握手，四次挥手？
 
-答：
+答：三次握手和四次挥手是指建立或关闭一个 TCP 连接的步骤。
+
+三次握手：
+
+1. 客户端发送一个带有SYN标志的数据包，表示客户端请求建立连接。
+2. 服务器收到请求后，发送一个带有SYN/ACK标志的数据包，表示服务器同意建立连接。
+3. 客户端收到服务器的应答后，发送一个带有ACK标志的数据包，表示客户端已经确认建立连接。
+
+四次挥手：
+
+1. 客户端发送一个带有FIN标志的数据包，表示客户端请求关闭连接。
+2. 服务器收到请求后，发送一个带有ACK标志的数据包，表示服务器已经确认收到关闭请求。
+3. 服务器再发送一个带有FIN标志的数据包，表示服务器也请求关闭连接。
+4. 客户端收到服务器的关闭请求后，发送一个带有ACK标志的数据包，表示客户端已经确认关闭连接。
+
+为什么是三次握手、四次挥手？因为每次都需要两个数据包互相确认，才能确定连接已经建立或已经关闭。
 
 ###### 3: socket 连接和 Http 连接的区别
 
@@ -594,15 +642,28 @@ http连接就是所谓的短连接，即客户端向服务器端发送一次请�
 
 ###### 4: HTTPS，安全层除了SSL还有，最新的？参数握手时首先客户端要发什么额外参数
 
-答：
+答：OS 中的 HTTPS 除了 SSL (Secure Sockets Layer)，还有 TLS (Transport Layer Security)，它是 SSL 的替代品。
+
+在 HTTPS 的安全握手中，首先客户端会发送一个额外的参数，称为客户端支持的 TLS 版本，以及客户端支持的加密算法。服务器可以根据客户端发送的参数，选择一个合适的加密算法，并返回给客户端一个证书，以确认服务器的身份。客户端收到服务器的证书后，就可以确定服务器的身份，并开始加密数据传输。
 
 ###### 5: 什么时候POP网络，有了 Alamofire 封装网络 URLSession为什么还要用Moya ？
 
-答：
+答：POP网络是指符合Protocol Oriented Programming（面向协议编程）思想的网络层设计方案。
+
+Alamofire是一个iOS平台的HTTP网络库，它封装了URLSession，使用方便，但是Moya的出现还是有原因的。
+
+Moya是一个基于Alamofire的网络层封装，它引入了面向协议编程（Protocol Oriented Programming）的思想，在对网络请求的处理和管理上更加灵活，使用起来更加简便，而且更加适合复杂的项目。
 
 ###### 6: 如何实现 dispatch_once
 
 答：
+
+```objective-c
+static dispatch_once_t onceToken;
+dispatch_once(&onceToken, ^{
+    // 只会执行一次的代码
+});
+```
 
 ###### 7: 能否写一个读写锁？谈谈具体的分析
 
@@ -620,9 +681,133 @@ http连接就是所谓的短连接，即客户端向服务器端发送一次请�
 
 答：
 
+1. @synchronized：是 Objective-C 语言内置的锁，它是一种简单的互斥锁，适用于单线程环境下的同步控制。
+2. NSLock：是 Foundation 框架中的锁，它是一种互斥锁，也适用于单线程环境下的同步控制。
+3. pthread_mutex：是 POSIX 线程库中的锁，是一种互斥锁，适用于多线程环境下的同步控制。
+4. dispatch_semaphore：是 Grand Central Dispatch（GCD）框架中的锁，是一种信号量锁，适用于多线程环境下的同步控制。
+
+它们之间的主要区别：
+
+- @synchronized 和 NSLock 都是互斥锁，pthread_mutex 和 dispatch_semaphore 都是信号量锁，互斥锁和信号量锁在同步控制时的行为方式是不同的。
+- @synchronized 和 NSLock 都是在单线程环境下使用，pthread_mutex 和 dispatch_semaphore 都是在多线程环境下使用。
+- 在性能上，pthread_mutex 和 dispatch_semaphore 较 @synchronized 和 NSLock 更强大。
+
 ###### 10、网络请求的缓存处理，NSCache原理，LRU MRU 缓存原理，SKU SPU组合算法探究
 
-答：
+答：iOS中主要有三种缓存处理方式：NSCache、LRU (Least Recently Used) 和 MRU (Most Recently Used)。
+
+NSCache是一种内存缓存，它可以加快应用程序的性能，避免重复请求网络数据。它采用LRU算法淘汰不常用的数据，最常用的数据可以保留在缓存中，加快读取速度。
+
+```objective-c
+#import <Foundation/Foundation.h>
+
+@interface LRUCache : NSObject
+
+@property (nonatomic, assign) NSInteger capacity;
+
+- (id)get:(id)key;
+- (void)put:(id)key value:(id)value;
+
+@end
+
+@interface LRUCache ()
+
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@property (nonatomic, strong) NSMutableDictionary *keys;
+
+@end
+
+@implementation LRUCache
+// 使用两个字典来维护缓存内容和数据的使用顺序。一个字典保存缓存数据，另一个字典保存数据使用的顺序，每次查询数据或添加新数据时，程序会更新数据的使用顺序。
+- (instancetype)initWithCapacity:(NSInteger)capacity {
+    if (self = [super init]) {
+        _capacity = capacity;
+        _cache = [NSMutableDictionary dictionary];
+        _keys = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+
+- (id)get:(id)key {
+    if (_cache[key]) {
+        [_keys removeObjectForKey:key];
+        [_keys setObject:key forKey:key];
+        return _cache[key];
+    }
+    return nil;
+}
+
+- (void)put:(id)key value:(id)value {
+    if (_cache[key]) {
+        [_cache removeObjectForKey:key];
+        [_keys removeObjectForKey:key];
+    }
+    if (_cache.count >= _capacity) {
+        id firstKey = [_keys allKeys][0];
+        [_cache removeObjectForKey:firstKey];
+        [_keys removeObjectForKey:firstKey];
+    }
+    [_cache setObject:value forKey:key];
+    [_keys setObject:key forKey:key];
+}
+@end
+```
+
+LRU算法是缓存淘汰策略的一种，它按照最近使用的顺序来判断数据的重要性，最近使用的数据会被留在缓存中，最久未使用的数据会被淘汰。
+
+```objective-c
+//用字典存储缓存数据，然后维护一个链表，链表的首位为最常用数据，末尾为最不常用数据，在读取数据的时候将数据移到链表的最前面，当缓存空间满的时候把链表的末尾元素删除即可。
+@interface LRUCache : NSObject
+
+@property (nonatomic, assign) NSInteger capacity;
+@property (nonatomic, strong) NSMutableDictionary *cache;
+@property (nonatomic, strong) NSMutableArray *keys;
+
+-(id)objectForKey:(id)key;
+-(void)setObject:(id)object forKey:(id)key;
+@end
+
+@implementation LRUCache
+
+- (instancetype)initWithCapacity:(NSInteger)capacity {
+    self = [super init];
+    if (self) {
+        _capacity = capacity;
+        _cache = [NSMutableDictionary dictionary];
+        _keys = [NSMutableArray array];
+    }
+    return self;
+}
+- (id)objectForKey:(id)key {
+    if (!key) {
+        return nil;
+    }
+    id object = [_cache objectForKey:key];
+    if (object) {
+        [_keys removeObject:key];
+        [_keys insertObject:key atIndex:0];
+    }
+    return object;
+}
+- (void)setObject:(id)object forKey:(id)key {
+    if (!key) {
+        return;
+    }
+    [_cache setObject:object forKey:key];
+    [_keys removeObject:key];
+    [_keys insertObject:key atIndex:0];
+    if (_keys.count > _capacity) {
+        id keyToRemove = [_keys lastObject];
+        [_cache removeObjectForKey:keyToRemove];
+        [_keys removeLastObject];
+    }
+}
+@end
+```
+
+MRU算法是缓存淘汰策略的一种，它按照最近使用的顺序来判断数据的重要性，最近使用的数据会被淘汰，最久未使用的数据会被留在缓存中。
+
+SPU组合算法是一种更加灵活的缓存算法，它结合了LRU和MRU算法的优点，在缓存数据的时候能更好地保证数据的有效性和读取速度。
 
 ###### 11、post和get区别,应用层协议里的 GET 和 POST 有啥区别
 
@@ -651,11 +836,24 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 ###### 1: 数据结构的存储一般常用的有几种？各有什么特点？
 
-答：
+答：数据结构的存储一般常用的有以下几种：
+
+1. 链式存储：每个节点都存有前驱节点和后继节点的指针，实现了对数据的逻辑连续性。
+2. 数组存储：用一个连续的存储区存储数据，每个元素的位置确定，可以快速的随机访问元素。
+3. 顺序存储：是数组存储的一种特殊形式，即在静态数组的基础上加上一个有限制的插入和删除操作，常用来实现栈和队列。
+4. 矩阵存储：对于二维数据，矩阵存储是一种常用的存储方式，可以索引二维数据的行列元素。
+5. 树形存储：将数据组织为树形结构，可以实现数据的逻辑划分，常用来实现高效的查询。
+
+这几种存储方式各有特点，在数据的查询、插入、删除等操作的性能上有很大的差异。在具体应用中，需要根据实际情况选择合适的存储方式。
 
 ###### 2: 集合结构 线性结构 树形结构 图形结构
 
-答：
+答：数据结构分为四类：集合结构、线性结构、树形结构、图形结构。
+
+1. 集合结构：集合结构是数据结构的基础，它把元素当作整体来看待。常用的集合结构有数组和链表。
+2. 线性结构：线性结构以线性的方式组织数据，常见的线性结构有栈、队列、单向链表和双向链表。
+3. 树形结构：树形结构是一种分层数据结构，每个节点可以有多个子节点，但每个子节点只有一个父节点，常见的树形结构有二叉树、红黑树和平衡树。
+4. 图形结构：图形结构以图的形式组织数据，数据之间可以有多种关系，常见的图形结构有邻接矩阵和邻接表。
 
 ###### 3: 单向链表 双向链表 循环链表 
 
@@ -663,7 +861,7 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 ###### 4: 数组和链表区别 
 
-答：
+答：1.存储方式：数组是连续的内存空间，链表是链接的结点 2.插入/删除操作：数组在插入/删除时需要移动大量的元素，而链表只需要修改指针。 3.随机访问：数组支持随机访问，而链表不支持。 4.内存空间：数组需要预先分配空间，而链表动态分配内存。
 
 ###### 5: 堆、栈和队列
 
@@ -717,7 +915,25 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 ###### 10: 给定一个整数数组和一个目标值，找出数组中和为目标值的两个数
 
-答：
+答：暴力法：遍历每个数，并且对于每个数，检查是否存在另一个数与其相加为目标值。如果存在，则返回两个数的索引。
+
+哈希表法：首先创建一个字典，其中的键是数组中的数，值是数组中的数的索引。然后遍历数组，并且对于每个数，检查是否存在另一个数（目标值减去当前数）存在于字典中。如果存在，则返回这两个数的索引。
+
+两种方法的复杂度均为O(n)，但哈希表法的空间复杂度比暴力法更高，因为它需要一个字典来存储数字和索引之间的映射。
+
+```objective-c
+- (NSArray *)twoSum:(NSArray *)nums target:(NSInteger)target {
+    NSMutableDictionary *dict = [NSMutableDictionary dictionary];
+    for (int i = 0; i < [nums count]; i++) {
+        NSInteger complement = target - [nums[i] integerValue];
+        if (dict[@(complement)]) {
+            return @[@(i), dict[@(complement)]];
+        }
+        dict[@([nums[i] integerValue])] = @(i);
+    }
+    return nil;
+}
+```
 
 #### 架构设计问题
 
@@ -738,9 +954,36 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 答：
 
+1. 提炼函数：将一段复杂的代码抽取出来，单独放在一个函数里
+2. 重命名：给变量，函数，类名等重新命名，使代码更清晰易懂
+3. 移除无用代码：删除没有被使用到的代码
+4. 提炼类：将某些逻辑放在一个类里，并且将相关的代码移到该类中
+5. 合并重复代码：把重复代码合并为一个函数
+
+重构适合在以下情况进行：
+
+1. 软件维护：在软件维护过程中，可以通过重构来使代码更容易维护
+2. 代码优化：在代码运行效率不足时，可以通过重构来优化代码
+3. 新功能开发：在新功能开发过程中，可以通过重构来帮助代码重构和重组。
+4. 增加代码可读性：当代码难以理解和维护时，可以通过重构来增加代码的可读性。
+
 ###### 4: 开发中常用架构设计模式你怎么选型?
 
 答：
+
+1. 项目的需求：项目的规模、复杂度和性能要求等因素都应该考虑在内。
+2. 可维护性：代码结构要清晰，方便后期维护。
+3. 可扩展性：要考虑到项目可能需要扩展或增加新功能。
+4. 技术选型：框架、工具和第三方库等技术的选择要认真考虑。
+
+常用的架构设计模式包括：MVC，MVVM，VIPER，Clean Architecture 等。在实际应用中，选择哪种模式取决于实际的需求和因素。
+
+重构适合在以下情况使用：
+
+1. 代码混乱：代码难以维护，结构不清晰，考虑重构。
+2. 新需求：如果需要添加新的功能，原代码可能不适用，重构是一种合理的解决方案。
+3. 代码不可读：代码很难阅读和理解，重构可以提高代码可读性。
+4. 性能问题：如果代码存在性能问题，重构可以提高代码性能。
 
 ###### 5: 怎么区分组件化和模块化？怎么区分框架与架构？你是如何组件化解耦的？
 
@@ -756,13 +999,46 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 #### 性能优化问题
 
-###### 1: tableView 有什么好的性能优化方案？
+###### 1: tableView 有什么好的性能优化方案？为什么tableView需要数据源来实现协议方法而不是直接把数据通过属性传给tableView？
 
-答：
+答：TableView 的性能优化方案如下：
+
+1. 尽量减少 Cell 数量：可以使用复用机制，避免创建过多的 Cell
+
+2. 使用较快的数据源方法：使用基于数组的数据源方法，如 cellForRowAtIndexPath
+
+3. 缓存 Cell 高度：避免在每次滚动时重新计算高度
+
+4. 减少图像大小：使用较小的图像，避免加载过大的图像
+
+5. 异步加载图像：使用异步加载图像，避免加载图像造成 UI 卡顿
+
+6. 使用 Autolayout：使用 Autolayout 管理布局，避免重复计算布局
+
+7. 预加载数据：在 TableView 即将显示前预加载数据，避免滚动时加载数据造成卡顿
+
+8. 使用批量操作：使用批量操作，避免对 TableView 进行多次单独的操作。
+
+   TableView需要数据源来实现协议方法是因为这样可以更好地控制tableView的数据和样式。数据源通过协议方法与tableView进行通信，告诉tableView如何显示数据，例如提供行数，单元格的高度等。数据源还可以维护自己的数据，并在tableView需要数据时返回。这种设计模式可以提高代码的可读性和可维护性。
 
 ###### 2: 界面卡顿和检测你都是怎么处理？
 
 答：
+
+1. 界面卡顿：
+
+- 使用 Time Profiler 工具定位卡顿代码
+- 减少 UI 线程执行的任务数量
+- 使用多线程编程
+- 缓存图像，避免加载图像时造成卡顿
+- 优化动画，避免过多的动画造成卡顿
+
+1. 检测线程卡住：
+
+- 使用 Debugger 工具进行实时调试
+- 设置断点，监视线程状态
+- 在卡住的线程中打印 Call Stack，从而定位到卡住代码
+- 使用 NSLog 或 printf 等方法记录日志，方便定位问题
 
 ###### 3: 谈谈你对离屏渲染的理解？
 
@@ -812,9 +1088,52 @@ APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制�
 
 答：
 
+1. 图片优化：使用适当大小的图片，压缩图片质量，删除不必要的图片。
+2. 文件移除：删除不必要的资源，如字体、音频、视频等。
+3. 使用静态库：将常用的第三方库打包成静态库，以避免重复引入。
+4. 文件冗余：删除重复的文件，如多余的图标。
+5. 编译优化：设置编译选项，如优化代码和缩小符号表。
+6. 代码优化：优化代码，减少不必要的代码。
+
+以下是一个图片优化的示例代码：
+
+```objective-c
+#import <UIKit/UIKit.h>
+
+@interface UIImage (Compression)
+
+- (UIImage *)compressImageWithMaxLength:(NSUInteger)maxLength;
+
+@end
+
+@implementation UIImage (Compression)
+
+- (UIImage *)compressImageWithMaxLength:(NSUInteger)maxLength {
+    CGFloat compression = 1.0f;
+    NSData *data = UIImageJPEGRepresentation(self, compression);
+    while (data.length > maxLength && compression > 0) {
+        compression -= 0.1f;
+        data = UIImageJPEGRepresentation(self, compression);
+    }
+    return [UIImage imageWithData:data];
+}
+
+@end
+  // 调用
+  UIImage *image = [UIImage imageNamed:@"example.jpg"];
+image = [image compressImageWithMaxLength:100 * 1024];
+
+```
+
 ###### 5: 日常如何检查内存泄露？
 
 答：
+
+1. 使用 Xcode 工具：在 Xcode 中使用「Debug Memory Graph」和「Allocations」工具来分析内存使用情况。
+2. 使用 Instruments：使用「Leaks」模板来检测内存泄漏。
+3. 添加断点：在代码中设置断点并使用「Debug Navigator」监视内存使用情况。
+4. 使用内存警告：在 Xcode 设置「Edit Scheme」，选择「Diagnostics」并启用「Enable Zombie Objects」。
+5. 使用第三方工具：使用如「LeakEye」等第三方内存泄漏检测工具。
 
 ###### 6: APP启动时间应从哪些方面优化？
 
@@ -823,7 +1142,51 @@ APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制�
  2.Build target 
  1.创建了几个文件夹，写入辅助文件：将项目的文件结构对应表、将要执行的脚本、项目依赖库的文件结构对应表写成文件,写入Entitlements.plist文件 ，方便后面使用；并且创建一个 .app 包，后面编译后的文件都会被放入包中； 
  2.运行预设脚本： Build Phases / Cocoapods 会预设一些脚本。
- 3.编译类文件：针对每一个文件进行编译，生成可执行文件 Mach-O，这过程 LLVM 的完整流程，前端、优化器、后端；
+
+```objective-c
+#import <mach/mach_time.h>
+// 该代码计算出 app 启动时间（以纳秒为单位），并使用 NSLog 将其记录到控制台。
+int main(int argc, char *argv[]) {
+    uint64_t start = mach_absolute_time();
+    @autoreleasepool {
+        int retVal = UIApplicationMain(argc, argv, nil, @"AppDelegate");
+        return retVal;
+    }
+    uint64_t end = mach_absolute_time();
+    uint64_t elapsed = end - start;
+    mach_timebase_info_data_t timebase;
+    mach_timebase_info(&timebase);
+    uint64_t elapsedNano = elapsed * timebase.numer / timebase.denom;
+    NSLog(@"elapsed time: %llu ns", elapsedNano);
+}
+```
+
+ 
+
+```ruby
+# Uncomment the next line to define a global platform for your project
+# platform :ios, '9.0'
+
+target 'YourTargetName' do
+  # Comment the next line if you're not using Swift and don't want to use dynamic frameworks
+  use_frameworks!
+# 在这段代码中，「post_install」预设脚本会在安装完「CocoaPods」依赖后自动运行，并在「OTHER_SWIFT_FLAGS」中添加「-Xfrontend -debug-time-function-bodies」标志，这样就能够在「Xcode」控制台中记录函数体执行时间，从而评估启动时间。
+
+需要注意的是，这段代码只是一个示例，根据项目需求可能需要进行调整。
+  # Pods for YourTargetName
+  pod 'YourPodName'
+
+  post_install do |installer|
+    installer.pods_project.targets.each do |target|
+        target.build_configurations.each do |config|
+            config.build_settings['OTHER_SWIFT_FLAGS'] = '-Xfrontend -debug-time-function-bodies'
+        end
+    end
+  end
+end
+```
+
+3.编译类文件：针对每一个文件进行编译，生成可执行文件 Mach-O，这过程 LLVM 的完整流程，前端、优化器、后端；
  4.链接文件：将项目中的多个可执行文件合并成一个文件；
  5.拷贝资源文件：将项目中的资源文件拷贝到目标包；
  6.编译 Asset 文件：我们的图片如果使用 Assets.xcassets 来管理图片，那么这些图片将会被编译成机器码，除了 icon 和 launchImage；
@@ -835,7 +1198,60 @@ APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制�
  12.将 Swift 标准库拷贝到包中（如果有swift）
  13.对包进行签名
  14.完成打包
- LLVM 编译过程
+
+###### 数据库索引的索引下推？
+
+答：索引下推是一种数据库优化技术，在数据库执行SQL语句时，会自动评估是否可以使用索引代替全表扫描来完成查询，从而提高查询效率。
+
+以MySQL数据库为例，可以使用以下代码创建索引并证明索引下推的效果：
+
+1. 创建表：
+
+```sqlite
+sqlCopy code
+CREATE TABLE users (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255),
+    age INT,
+    created_at DATETIME
+);
+```
+
+1. 创建索引：
+
+```sqlite
+scssCopy code
+CREATE INDEX idx_users_age ON users(age);
+```
+
+1. 插入数据：
+
+```sqlite
+scssCopy code
+INSERT INTO users(name, age, created_at) VALUES('John', 25, NOW());
+INSERT INTO users(name, age, created_at) VALUES('Jane', 30, NOW());
+```
+
+1. 执行查询语句：
+
+```sqlite
+sqlCopy code
+EXPLAIN SELECT * FROM users WHERE age > 27;
+```
+
+1. 查询语句的执行计划中，如果使用了索引，则可以看到"Using index"的字样，说明索引下推成功。
+
+```sqlite
+sqlCopy code
++----+-------------+-------+-------+---------------+---------+---------+-------+------+-------------+
+| id | select_type | table | type  | possible_keys | key     | key_len | ref   | rows | Extra       |
++----+-------------+-------+-------+---------------+---------+---------+-------+------+-------------+
+|  1 | SIMPLE      | users | range | idx_users_age | idx_users_age | 4      | NULL |   1 | Using index |
++----+-------------+-------+-------+---------------+---------+---------+-------+------+-------------+
+```
+
+######  LLVM 编译过程
+
  	▪	预处理
  	▪	词法分析
  	▪	语法分析
@@ -848,18 +1264,86 @@ APP在渲染的时候大概是使用画家算法： 绘制的过程首先绘制�
  	▪	生成目标文件
  	▪	生成可执行文件
  void * _Nullable NSMapGet(NSMapTable * _Nonnull, const void * _Nullable): map table argument is NULL**
- runtime时系统创建了多少个全局对象 数据结构是什么 作用是什么
+
+######  runtime时系统创建了多少个全局对象 数据结构是什么 作用是什么？
+
+答：系统创建了多个全局对象。这些对象是用于管理类的元数据、消息转发、方法调用等运行时行为的。
+
+数据结构可能包括类元数据缓存、方法列表、消息分发表等。
+
+作用是为了提高程序的运行效率，使用元数据缓存可以避免重复加载类的元数据，方法列表可以帮助快速找到方法的入口，消息分发表可以快速找到正确的方法来处理消息。
+
  面试题：
  1.用什么集合，几个集合区别是什么
  2.java类型有什么，我说是数据类型， 八大数据类型 他还是问，string是什么类型， 我说是引用类型，接着问 string 和stringbuffer stringbuilding区别是什么
  3.消息队列
  4.mq
  5.sql优化 
- 6.为什么tableView需要数据源来实现协议方法而不是直接把数据通过属性传给tableView？
+
  面试题A：
  1.重写和重载分别是什么，区别是什么
  2.hashMap的底层远离
- 3.创建线程的几个方法是什么，区别是什么
+
+######  3.创建线程的几个方法是什么，区别是什么？
+
+  答：iOS中创建线程的几种方法有：NSThread、pthread、NSOperation、GCD。
+
+- NSThread：通过封装了pthread API的NSThread类实现，比较简单易用。
+- pthread：是C语言中的多线程库，底层实现，编程难度高。
+- NSOperation：是面向对象的线程抽象，是基于pthread的封装，比较易用。
+- GCD：是基于C语言的多线程技术，通过队列和任务的方式实现，编程难度低。
+
+代码示例：
+
+- NSThread：
+
+```objective-c
+objectivecCopy code
+NSThread *thread = [[NSThread alloc] initWithTarget:self selector:@selector(run) object:nil];
+[thread start];
+
+- (void)run {
+    NSLog(@"NSThread");
+}
+```
+
+- pthread：
+
+```objective-c
+cppCopy code
+pthread_t thread;
+pthread_create(&thread, NULL, run, NULL);
+pthread_join(thread, NULL);
+
+void *run(void *param) {
+    NSLog(@"pthread");
+    return NULL;
+}
+```
+
+- NSOperation：
+
+```objective-c
+objectivecCopy code
+NSOperationQueue *queue = [[NSOperationQueue alloc] init];
+NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self selector:@selector(run) object:nil];
+[queue addOperation:operation];
+
+- (void)run {
+    NSLog(@"NSOperation");
+}
+```
+
+- GCD：
+
+```objective-c
+cCopy code
+dispatch_queue_t queue = dispatch_queue_create("com.test.queue", NULL);
+dispatch_async(queue, ^{
+    NSLog(@"GCD");
+});
+```
+
  4.linux命令中用什么打开文件， 有几种
  5.vi命令中用什么搜索
  6.linux中用什么查询

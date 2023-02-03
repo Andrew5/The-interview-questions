@@ -1036,9 +1036,26 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 1. 检测线程卡住：
 
 - 使用 Debugger 工具进行实时调试
+
 - 设置断点，监视线程状态
+
 - 在卡住的线程中打印 Call Stack，从而定位到卡住代码
+
 - 使用 NSLog 或 printf 等方法记录日志，方便定位问题
+
+  ```objective-c
+  //引入Performance Monitoring工具：Performance Monitoring工具可以帮助我们诊断应用程序的卡顿和性能问题，例如，主线程卡顿、帧数、内存使用等。
+  //通过代码追踪线程卡顿：我们可以通过在代码中加入log语句来确定哪个线程卡住了，再通过debug调试检测代码，从而定位卡顿的代码。
+  // 如果线程卡住，我们可以通过查看log语句的打印情况来确定是否有线程卡住，从而定位问题。
+  - (void)checkThreadBlock {
+      NSTimeInterval begin = [NSDate timeIntervalSinceReferenceDate];
+      NSTimeInterval end = 0;
+      while ((end - begin) < 10) {
+          NSLog(@"run loop");
+          end = [NSDate timeIntervalSinceReferenceDate];
+      }
+  }
+  ```
 
 ###### 3: 谈谈你对离屏渲染的理解？
 
@@ -1619,7 +1636,7 @@ Flutter 引擎负责渲染界面、处理输入事件、调度动画等。Dart �
 
    这样的事件循环机制保证了 Flutter 程序的流程总是在控制之下，能够及时响应用户的输入并更新界面。
 
-###### flutter 是单线程还是多线程
+###### Dart 是单线程还是多线程
 
 答：单线程
 
@@ -1949,7 +1966,6 @@ Future<void> someFunction() async {
 举个例子:
 
 ```dart
-
 var map = HashMap<String, int>();
 map['first'] = 1;
 map['second'] = 2;
@@ -1969,14 +1985,12 @@ Platform channel 是 Flutter 提供的一种跨平台通信机制，可以在 Da
 原生代码收到参数后,使用AFNetwork进行网络请求,并将结果返回给Dart代码.首先,在 Dart 代码中创建一个 MethodChannel 对象
 
 ```dart
-
 static const platform = const MethodChannel('com.example.afnetwork');
 ```
 
 然后在原生代码中注册对应的方法
 
 ```dart
-
 Future<String> makeNetworkRequest(String url) async {
     final String result = await platform.invokeMethod('makeNetworkRequest', {'url': url});
     return result;
@@ -1986,7 +2000,6 @@ Future<String> makeNetworkRequest(String url) async {
 在原生代码中实现对应的方法
 
 ```dart
-
 @override
     Future<dynamic> onMethodCall(MethodCall call, Result result) {
         switch (call.method) {
@@ -2009,7 +2022,6 @@ Future<String> makeNetworkRequest(String url) async {
 最后,在Dart代码中调用 makeNetworkRequest() 方法,传递参数给原生代码
 
 ```dart
-
 String data = await makeNetworkRequest("https://jsonplaceholder.typicode.com/posts");
 ```
 
@@ -2030,7 +2042,6 @@ String data = await makeNetworkRequest("https://jsonplaceholder.typicode.com/pos
 首先，需要在 `pubspec.yaml` 中配置依赖，如：
 
 ```dart
-
 dependencies:
   okhttp: ^3.12.1
 ```
@@ -2038,7 +2049,6 @@ dependencies:
 然后在 dart 代码中使用 import 导入 okhttp 库
 
 ```dart
-
 import 'package:okhttp/okhttp.dart' as okhttp;
 ```
 
@@ -2088,6 +2098,8 @@ BLoC 模式可以使用第三方库如 bloc 或 flutter_bloc来实现。 使用�
 9）Swift支持命名空间
 10）Swift支持默认参数
 11）Swift比Objective-C代码更简洁
+在 Swift 中，函数是一种引用类型，因此将函数赋值给常量相当于将该函数的地址存储在常量中，而不是将函数的内容复制到常量中。因此，即使将函数赋值给常量，也仍然可以对该函数进行修改。
+在 Swift 中，函数是一种引用类型，因此将函数赋值给常量相当于将该函数的地址存储在常量中，而不是将函数的内容复制到常量中。因此，即使将函数赋值给常量，也仍然可以对该函数进行修改；结构体是值类型，常量持有的是结构体的一份拷贝，不能对其修改。而引用类型的常量仅仅是常量指向的内存地址不能变，但其本身的值是可以修改的。
 
 ###### 2、讲述讲Swift的派发机制
 

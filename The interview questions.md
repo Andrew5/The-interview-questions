@@ -5,14 +5,14 @@
 ###### 1: 讲讲你对atomic & nonatomic的理解
 
 答：nonatomic：非原子操作，决定编译器生成的setter getter是否是原子操作,不会为setter方法加锁。系统自动生成的   getter/setter   方法不一样。如果自己写   getter/setter  ，那   atomic/nonatomic/retain/assign/copy   这些关键字只起提示作用，写不写都一样。线程不安全  ,如有两个线程访问同一个属性，会出现无法预料的结果.
-atomic  和  no`natomic  用来决定编译器生成的  getter  和  setter  是否为原子操作。在多线程环境下，原子操作是必要的，否则有可能引起错误的结果。
+atomic  和  nonatomic  用来决定编译器生成的  getter  和  setter  是否为原子操作。在多线程环境下，原子操作是必要的，否则有可能引起错误的结果。
  对于  atomic  的属性，  atomic  表示多线程安全，  atomic  意为操作是原子的，系统生成的   getter/setter   会保证   get  、  set   操作的完整性，不受其他线程影响。
 比如，线程   A   的   getter   方法运行到一半，线程   B   调用了   setter  ：那么线程   A   的   getter   还是能得到一个完好无损的对象。意味着只有一个线程访问实例变量  (  生成的  setter  和  getter  方法是一个原子操作  )  而  nonatomic  就没有这个保证了。所以，  nonatomic  的速度要比  atomic  快  ;  不过  atomic  可并不能保证线程安全。如果线程   A   调了   getter  ，与此同时线程   B   、线程   C   都调了   setter——  那最后线程   A get   到的值，  3  种都有可能：可能是   B  、  C set   之前原始的值，也可能是   B set   的值，也可能是   C set   的值。同时，最终这个属性的值，可能是   B set   的值，也有可能是   C set   的值  . 
 
 > atomic  是线程安全的  ,  需要消耗大量的资源，至少在当前的存取器上是安全的。它是一个默认的特性，但是很少使用，因为比较影响效率  ,  加了  atomic  ，  setter  函数会变成下面这样：
 > if (property != newValue) {
-> [property release];
-> property = [newValue retain];
+>     [property release];
+>     property = [newValue retain];
 > }
 > 假设有一个   atomic   的属性   "name"  ，如果线程   A   调  [self setName:@"A"]  ，线程   B   调  [self setName:@"B"]  ，线程   C   调  [self name]  ，那么所有这些不同线程上的操作都将依次顺序执行  ——  也就是说，如果一个线程正在执行   getter/setter  ，其他线程就得等待。因此，属性   name   是读  /  写安全的。 
 > 但是，如果有另一个线程   D   同时在调  [name release]  ，那可能就会  crash  ，因为   release   不受   getter/setter   操作的限制。也就是说，这个属性只能说是读  /  写安全的，但并不是线程安全的，因为别的线程还能进行读写之外的其他操作。线程安全需要开发者自己来保证。
@@ -21,41 +21,133 @@ atomic  和  no`natomic  用来决定编译器生成的  getter  和  setter  �
 > //@property(nonatomic, retain) UITextField *userName;
 > //系统生成的代码如下：
 > \- (UITextField *) userName {
-> return userName;
+>     return userName;
 > }
 > \- (void) setUserName:(UITextField *)userName {
->  [userName retain];
->  [userName release];
->  userName = userName;
+>     [userName retain];
+>     [userName release];
+>     userName = userName;
 > }
 > //atomic如下解释：
 > //@property(retain) UITextField *userName;
 > //系统生成的代码如下：
 > \- (UITextField *) userName {
->   UITextField *retval = nil;*
->   @synchronized(self) {
->   retval = [[userName retain] autorelease];
->  }
->  return retval;
+>     UITextField *retval = nil;*
+>     @synchronized(self) {
+>      retval = [[userName retain] autorelease];
+>   }
+>   return retval;
 > }
 > \- (void) setUserName:(UITextField *)userName {
->   @synchronized(self) { 
->    [userName release];
->    userName = [userName_ retain];
->  }
+>     @synchronized(self) { 
+>     [userName release];
+>     userName = [userName_ retain];
+>     }
 > }
 > // atomic 会加一个锁来保障线程安全，并且引用计数会 +1，来向调用者保证这个对象会一直存在。假如不这样做，如有另一个线程调 setter，可能会出现线程问题，导致引用计数降到0，原来那个对象就会被释放掉；
->  @synthesize  的语义：如果没有手动实现  setter  和  getter  方法，编译器会自动添加这两个方法。【强调合成】 
-> @dynamic  的语义：告知编译器  ,  属性的  setter  与  getter  方法由自己实现，不需要自动生成。【对于  readonly  的属性只需要提供  geter  】  ;  当没有用  @dynamic  修饰属性的时候，编译器默认是实现了  getter  和  setter  方法。还顺便插入了实例变量 
+> @synthesize  的语义：如果没有手动实现  setter  和  getter  方法，编译器会自动添加这两个方法。
+> 【强调合成】 
+> @dynamic  的语义：告知编译器  ,  属性的  setter  与  getter  方法由自己实现，不需要自动生成。
+> 【对于  readonly  的属性只需要提供  geter  】;  
+> 当没有用  @dynamic  修饰属性的时候，编译器默认是实现了  getter  和  setter  方法。还顺便插入了实例变量 
 
 atomic 修饰的属性是绝对安全的吗？为什么？
 不是，所谓的安全只是局限于 Setter、Getter 的访问器方法而言的，你对它做 Release 的操作是不会受影响的。这个时候就容易崩溃了。
 
-###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？知道sideTable 么？里面的结构可以画出来么？
+###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？
 
-答：weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。 若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 假设变量obj附加strong修饰符且对象被赋值。 { // 声明一个weak指针 id weak obj1 = obj; } 模拟编译器编译后的代码： id obj1;objc_initWeak(&obj1, obj); objc_release(obj); objc_destroyWeak(&obj1); 通过objc_initWeak 函数初始化附有weak修饰符的变量： /* 编译器的模拟代码 / id obj1; obj1 = 0; objc_storeWeak(&obj1, obj); objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。如果第二参数为0，则把变量的地址从weak表中删除。 weak 表与引用计数表相同，作为散列表被实现。如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： / 编译器的模拟代码 / objc_storeWeak(&obj1, 0); 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 （1）objc_release （2）因为引用计数为0所以执行dealloc （3）objc_rootDealloc （4）object_dispose （5）objc_destructInstance （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating函数的动作如下： （1）从weak表中获取废弃对象的地址为键值的记录。 （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 （3）从weak表中删除该记录。 （4）从引用计数表中删除废弃对象的地址为键值的记录。 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。良策是只在需要避免循环引用时使用weak修饰符。 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。 { id weak obj = [[NSObject alloc] init]; } 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? /编译器的模拟代码/ id obj； id tmp = objc_msgSend(NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init)); objc_initweak(&obj, tmp); objc_destroyWeak(&object)； 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。下面我们通过NSLog函数来验证一下: id weak obj= [[NSObject alloc] init]; NSLog(@"obj=%@"，obj); 以下为该源代码的输出结果，其中用%@输出nil。 obj=（null） 如上所述，以下源代码会引起编译器警告。 id weak obj= [[NSObject alloc] init]; 这是由于编译器判断生成并持有的对象不能继续持有。附有unsafe_unretained修饰符的变量又如何呢? id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable; object will be released after assignment 该源代码通过编译器转换为以下形式。 /编译器的模拟代码/ id obj = objc_msgSend( NSObject, @selector(alloc))； objc_msgSend(obj,@selector(init))； objc_release(obj); objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。 那么如果最初不赋值变量又会如何呢？下面的源代码在MRC时必定会发生内存泄漏。 [[NSObject alloc] init]； 由于源代码不使用返回值的对象，所以编译器发出警告。 warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 可像下面这样通过向void型转换来避免发生警告。 （void)[[NSObject alloc] init]； 不管是否转换为void，该源代码都会转换为以下形式 / 编译器的模拟代码 */ id tmp = objc_msgSend( NSObject, @selector(alloc)); objc_msgSend(tmp, @selector(init))； objc_release(tmp)； 在调用了生成并持有对象的实例方法后，该对象被释放。看来“由编译器进行内存管理”这句话应该是正确的。 
+答：`weak` 修饰的对象是弱引用，意味着它不会对所引用的对象的生命周期造成影响。如果所引用的对象没有被其他任何强引用所引用，那么在垃圾回收的时候它就会被回收。
 
-1、Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。具体过程如下1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。2、添加引用时: objc_initWeak函数会调用objc storeWeak(0函数,更新指针指向,创建对应的弱引用表。3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？当释放对象时，其基本流程如下：1、调用objc_release2、因为对象的引用计数为0，所以执行dealloc3、在dealloc中，调用了objc_rootDealloc函数4、在objc_rootDealloc中，调用了object_dispose函数5、调用objc_destructInstance6、最后调用objc_clear_deallocating,详细过程如下：a. 从weak表中获取废弃对象的地址为键值的记录b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nilc. 将weak表中该记录删除d. 从引用计数表中删除废弃对象的地址为键值的记录
+这是通过在内存管理的基础数据结构中，如垃圾回收系统的内存表（side table）中维护一个引用计数器实现的。当一个对象的引用计数器为 0 时，它就会被回收。对于强引用，引用计数器加 1，而对于弱引用，引用计数器不会改变。
+
+weak
+weak表示指向但不拥有该对象。其修饰的对象引用计数不会增加。无需手动设置，该对象会自行在内存中销毁。 __weak(assign) 修饰表明一种关系“非拥有关系”。
+弱引用，不决定对象的存亡。即使一个对象被持有无数个弱引用，只要没有强引用指向它，那么还是会被销毁；在一个对象被释放后，weak会自动将指针指向nil，而assign则不会，向nil发送消息时不会导致崩溃的，所以assign就会导致野指针的错误unrecognized selector sent to instance。
+若附有weak 修饰符的变量所引用的对象被废弃，则将nil赋值给该变量。 
+
+>  假设变量obj附加strong修饰符且对象被赋值。
+> { 
+>      // 声明一个weak指针
+>       id weak obj1 = obj; 
+> } 
+> 模拟编译器编译后的代码： 
+> id obj1;
+> objc_initWeak(&obj1, obj); 
+> objc_release(obj);
+> objc_destroyWeak(&obj1); 
+> 通过objc_initWeak 函数初始化附有weak修饰符的变量：
+>  /* 编译器的模拟代码 / 
+> id obj1; 
+> obj1 = 0; 
+> objc_storeWeak(&obj1, obj); 
+> objc_storeWeak函数把第二参数的赋值对象的地址作为键值，将第一参数的附有weak修饰符的变量的地址注册到weak表中。
+> 如果第二参数为0，则把变量的地址从weak表中删除。 
+> weak 表与引用计数表相同，作为散列表被实现。
+> 如果使用weak表，将废弃对象的地址作为键值进行检索，就能高速地获取对应的附有weak修饰符的变量的地址。
+> 另外，由于一个对象可同时赋值给多个附有weak修饰符的变量中，所以对于一个键值，可注册多个变量的地址。 在变量作用域结束时通过 objc_destroyWeak函数释放该变量： 
+> / 编译器的模拟代码 / 
+> objc_storeWeak(&obj1, 0); 
+> 释放对象时，废弃谁都不持有的对象的同时，程序的动作是怎样的呢？下面我们来跟踪观察。对象将通过objc_release函数释放。 
+> （1）objc_release 
+> （2）因为引用计数为0所以执行dealloc 
+> （3）objc_rootDealloc 
+> （4）object_dispose 
+> （5）objc_destructInstance 
+> （6）objc_clear_deallocating 对象被废弃时最后调用的objc_clear_deallocating
+> 函数的动作如下： 
+> （1）从weak表中获取废弃对象的地址为键值的记录。
+> （2）将包含在记录中的所有附有weak修饰符变量的地址，赋值为nil。 
+> （3）从weak表中删除该记录。 
+> （4）从引用计数表中删除废弃对象的地址为键值的记录。 
+> 根据以上步骤，前面说的如果附有weak修饰符的变量所引用的对象被废弃，则将nil赋值给该变量这一功能即被实现。
+> 由此可知，如果大量使用附有weak修饰符的变量，则会消耗相应的CPU资源。
+> 良策是只在需要避免循环引用时使用weak修饰符。
+> 以上就是一个 weak 指针从初始化到被置为nil 的全过程，在写这篇文章之前我一直有疑惑，如果是objc_clear_deallocating函数进行了weak指针置为nil的操作，那objc_destroyWeak函数是干嘛的？
+> 我反复推敲，想起来文中早已说明了用途 “在变量作用域结束时通过 objc_destroyWeak函数释放该变量”，也就是说objc_destroyWeak函数是在weak指针被置为nil后，用来将weak释放掉。 
+> weak立即释放对象 使用weak修饰符时，以下源代码会引起编译器警告。
+>  {
+>        id weak obj = [[NSObject alloc] init]; 
+>  } 
+> 因为该源代码将自己生成并持有的对象赋值给附有weak修饰符的变量中，所以自己不能持有该对象，这时会被释放并被废弃，因此会引起编译器警告：warning: Assigning retained object to weak variable; object will be released after assignment 编译器如何处理该源代码呢? 
+> /编译器的模拟代码/ 
+> id obj；
+> id tmp = objc_msgSend(NSObject, @selector(alloc)); 
+> objc_msgSend(tmp, @selector(init)); 
+> objc_initweak(&obj, tmp); 
+> objc_destroyWeak(&object)； 
+> 虽然自己生成并持有的对象通过objc_initWeak函数被赋值给附有weak修饰符的变量中，但编译器判断其没有持有者，故该对象立即通过objc_release函数被释放和废弃。 
+> 这样一来，nil就会被赋值给引用废弃对象的附有weak修饰符的变量中。
+> 下面我们通过NSLog函数来验证一下:
+> id weak obj= [[NSObject alloc] init]; 
+> NSLog(@"obj=%@"，obj); 
+> 以下为该源代码的输出结果，其中用%@输出nil。
+> obj =（null） 
+> 如上所述，以下源代码会引起编译器警告。
+>  id weak obj= [[NSObject alloc] init]; 
+> 这是由于编译器判断生成并持有的对象不能继续持有。
+> 附有unsafe_unretained修饰符的变量又如何呢? 
+> id unsafe_unretained obj=[[NSObject alloc] init]; 与weak修饰符完全相同，
+> 编译器判断生成并持有的对象不能继续持有，从而发出警告： Assigning retained object to unsafe_unretained variable;
+> object will be released after assignment 该源代码通过编译器转换为以下形式。 
+> /编译器的模拟代码/
+> id obj = objc_msgSend( NSObject, @selector(alloc))；
+> objc_msgSend(obj,@selector(init))；
+> objc_release(obj);
+> objc_release函数立即释放了生成并持有的对象，这样该对象的悬垂指针被赋值给变量obj中。
+> 那么如果最初不赋值变量又会如何呢？
+> 下面的源代码在MRC时必定会发生内存泄漏。
+> [[NSObject alloc] init]； 
+> 由于源代码不使用返回值的对象，所以编译器发出警告。
+> warning：expression result unused [-Wunused-value] [[NSObject alloc] init]； 
+> 可像下面这样通过向void型转换来避免发生警告。
+>  （void)[[NSObject alloc] init]；
+> 不管是否转换为void，该源代码都会转换为以下形式
+>  / 编译器的模拟代码 */ 
+> id tmp = objc_msgSend( NSObject, @selector(alloc)); 
+> objc_msgSend(tmp, @selector(init))；
+> objc_release(tmp)； 
+> 在调用了生成并持有对象的实例方法后，该对象被释放。
+> 看来“由编译器进行内存管理”这句话应该是正确的。 
 
 ###### 3: block 用什么修饰？strong 可以？
 
@@ -64,18 +156,63 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 
 ###### 4: block 为什么能够捕获外界变量？ block  做了什么事？ 
 
-答："block内部也有个isa指针。block是封装了函数调用以及函数调用环境的OC对象。block内部有isa指针，以及包含指向方法实现的地址，对于局部自动变量，是值传递，对于局部静态变量，是指针传递，全局变量直接访问，__block可以用于解决block内部无法修改auto变量值的问题，编译器会将__block变量包装成一个对象。"
+答："block内部也有个isa指针。block是封装了函数调用以及函数调用环境的OC对象。block内部有isa指针，以及包含指向方法实现的地址，对于局部自动变量，是值传递，对于局部静态变量，是指针传递，全局变量直接访问，__block可以用于解决block内部无法修改auto变量值的问题，编译器会将__block变量包装成一个对象。
+"__如何防止block里的对象被提前释放了__
+在block内部使用外部对象时，可以使用block修饰符声明变量，这样可以将变量的生命周期与block的生命周期绑定。这样在block内部使用的变量就不会被提前释放。另外，可以将外部对象的引用添加到一个strong变量中，然后在block中使用strong变量，这样可以保证引用的对象不会被提前释放。（vc你销毁不了 vc只能在主线程同步销毁 arc下托管给系统处理的 mrc下你异步销毁唯一结果就是崩溃；vc走不走dealloc 取决于他所有持有的对象有没有走dealloc，找自己持有的所有非系统对象是不是没走deadlock 系统的不会有问题 就看你自定义对象就行
+iOS 比如你进某个页面会从服务器拉个结果，这个结果是全局都在用的，也就是说你进去一次就会刷新一次这个结果，这个结果在其他页面也会用到，假设你进去这个vc触发了拉取的动作 但你很快又退出了，那这个请求的动作怎么办？他回来的结果给谁处理？(关于block引用问题)
+这个问题可以通过在请求结束时，判断当前页面是否仍然在显示，如果不是，可以不进行处理。或者，在请求时，将需要处理请求的对象，比如说其他的VC，设置为block的弱引用，在请求结束后，只有在该VC仍然存在时才进行处理。）
+
+"__block有什么作用__
+
+_在block内修改某局部变量需加block, MRC 环境下block在使用过程中不会对原来值进行copy，可以直接修改该变量 ，ARC环境下会对原值进行copy，内存地址也发生变化;
+
+block可以直接修改 全局和静态变量 ，不会copy该变量的值.
+不加__block, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
+_使用_block ,MRC环境block中不会对原来的指针进行copy，所以可以更改属性，也可以更改对象本身 ；而ARC环境则是对原对象的copy，内存地址也发生变化
+block所起到的作用就是只要观察到该变量被 block 所持有,就将“外部变量”在栈中的内存地址放到了堆中。进而在block内部也可以修改外部变量的值,
+一、block 的三种类型
+block 三种类型:全局 block，堆 block、栈 block。
+全局 block(NSGlobalBlock)：没有访问外界局部变量的 block 就是全局 block，存储在全局区。
+堆 block(NSMallocBlock)：对栈 block 进行 copy 操作返回的就是堆 block，存储在堆区。
+栈 block(NSStackBlock)：访问了外界普通局部变量的 block 就是栈 block，存储在栈区。
+二、block 建议用 copy 而不用 retain/strong 的原因
+block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/strong/copy 等修饰词修饰。但是 block 在创建的时候内存默认分配在栈上，而不是堆上的。所以它的作用域仅限创建时候的作用域内，当你在该作用域外调用该 block 时，程序就会崩溃
+
+1. 将外部变量作为 __block 声明的变量在 block 中使用。这告诉编译器外部变量的值应该被复制到 block 中。
+2. 将外部变量作为弱引用使用，使用 weakSelf 等形式声明 weak 变量，以便 block 不保留对该对象的强引用。这确保了在 block 执行结束后，外部对象可以被正确回收。
 
 ###### 5: 谈谈你对事件的传递链和响应链的理解
 
-答：1.用户触摸屏幕，系统硬件进程会获取到这个点击事件，将事件简单处理封装后存到系统中，由于硬件检测进程和当前App进程是两个进程，所以进程两者之间传递事件用的是端口通信。硬件检测进程会将事件放到APP检测的端口。2.APP启动主线程RunLoop会注册一个端口事件，来检测触摸事件的发生。当事件到达，系统会唤起当前APP主线程的RunLoop。来源就是App主线程事件，主线程会分析这个事件。3.最后，系统判断该次触摸是否导致了一个新的事件, 也就是说是否是第一个手指开始触碰，如果是，系统会先从响应网中 寻找响应链。如果不是，说明该事件是当前正在进行中的事件产生的一个Touch message， 也就是说已经有保存好的响应链.大致的过程 initial view –> super view –> ……–> view controller –> window –> Application这里呢 UIResponder是所有可以响应事件的类的基类，其中包括最常见的UIView和UIViewController甚至是UIApplication，通过Hit-Test过程找到这个initial view，当用户点击了手机屏幕时，UIApplication就会调用UIWindow的hitTest: withEvent:方法。这个方法最终返回一个UiView。也就是我们要找到的那个最前的view响应链中是有 controller 的，因为 controller 继承自 UIResponder。UIApplication –> UIWindow –>递归找到最合适处理的控件 –> 控件调用 touches 方法 –> 判断是否实现 touches 方法 –> 没有实现默认会将事件传递给上一个响应者 –> 找到上一个响应者 –> 找不到方法作废
-		苹果注册了一个 Source1 (基于 mach port 的) 用来接收系统事件，其回调函数为 __IOHIDEventSystemClientQueueCallback()。	当一个硬件事件(触摸/锁屏/摇晃等)发生后，首先由 IOKit.framework 生成一个 IOHIDEvent 事件并由 SpringBoard 接收。这个过程的详细情况可以参考这里。SpringBoard 只接收按键(锁屏/静音等)，触摸，加速，接近传感器等几种 Event，随后用 mach port 转发给需要的App进程。随后苹果注册的那个 Source1 就会触发回调，并调用 _UIApplicationHandleEventQueue() 进行应用内部的分发。	UIApplicationHandleEventQueue() 会把 IOHIDEvent 处理并包装成 UIEvent 进行处理或分发，其中包括识别 UIGesture/处理屏幕旋转/发送给 UIWindow 等。通常事件比如 UIButton 点击、touchesBegin/Move/End/Cancel 事件都是在这个回调中完成的。	手势识别	当上面的 _UIApplicationHandleEventQueue() 识别了一个手势时，其首先会调用 Cancel 将当前的 touchesBegin/Move/End 系列回调打断。随后系统将对应的 UIGestureRecognizer 标记为待处理。	苹果注册了一个 Observer 监测 BeforeWaiting (Loop即将进入休眠) 事件，这个Observer的回调函数是 _UIGestureRecognizerUpdateObserver()，其内部会获取所有刚被标记为待处理的 GestureRecognizer，并执行GestureRecognizer的回调。	当有 UIGestureRecognizer 的变化(创建/销毁/状态改变)时，这个回调都会进行相应处理。
+答：1.用户触摸屏幕，系统硬件进程会获取到这个点击事件，将事件简单处理封装后存到系统中，由于硬件检测进程和当前App进程是两个进程，所以进程两者之间传递事件用的是端口通信。
+硬件检测进程会将事件放到APP检测的端口。
+2.APP启动主线程RunLoop会注册一个端口事件，来检测触摸事件的发生。
+当事件到达，系统会唤起当前APP主线程的RunLoop。
+来源就是App主线程事件，主线程会分析这个事件。
+3.最后，系统判断该次触摸是否导致了一个新的事件, 也就是说是否是第一个手指开始触碰，如果是，系统会先从响应网中 寻找响应链。
+如果不是，说明该事件是当前正在进行中的事件产生的一个Touch message， 也就是说已经有保存好的响应链.大致的过程 initial view –> super view –> ……–> view controller –> window –> Application这里呢 UIResponder是所有可以响应事件的类的基类，其中包括最常见的UIView和UIViewController甚至是UIApplication，通过Hit-Test过程找到这个initial view，当用户点击了手机屏幕时，UIApplication就会调用UIWindow的hitTest: withEvent:方法。这个方法最终返回一个UiView。
+也就是我们要找到的那个最前的view响应链中是有 controller 的，因为 controller 继承自 UIResponder。UIApplication –> UIWindow –>递归找到最合适处理的控件 –> 控件调用 touches 方法 –> 判断是否实现 touches 方法 –> 没有实现默认会将事件传递给上一个响应者 –> 找到上一个响应者 –> 找不到方法作废
+		
+苹果注册了一个 Source1 (基于 mach port 的) 用来接收系统事件，其回调函数为 __IOHIDEventSystemClientQueueCallback()。	
+当一个硬件事件(触摸/锁屏/摇晃等)发生后，首先由 IOKit.framework 生成一个 IOHIDEvent 事件并由 SpringBoard 接收。
+这个过程的详细情况可以参考这里。
+SpringBoard 只接收按键(锁屏/静音等)，触摸，加速，接近传感器等几种 Event，随后用 mach port 转发给需要的App进程。
+随后苹果注册的那个 Source1 就会触发回调，并调用 _UIApplicationHandleEventQueue() 进行应用内部的分发。	
+UIApplicationHandleEventQueue() 会把 IOHIDEvent 处理并包装成 UIEvent 进行处理或分发，其中包括识别 UIGesture/处理屏幕旋转/发送给 UIWindow 等。
+通常事件比如 UIButton 点击、touchesBegin/Move/End/Cancel 事件都是在这个回调中完成的。	
+手势识别	当上面的 _UIApplicationHandleEventQueue() 识别了一个手势时，其首先会调用 Cancel 将当前的 touchesBegin/Move/End 系列回调打断。
+随后系统将对应的 UIGestureRecognizer 标记为待处理。	
+苹果注册了一个 Observer 监测 BeforeWaiting (Loop即将进入休眠) 事件，这个Observer的回调函数是 _UIGestureRecognizerUpdateObserver()，其内部会获取所有刚被标记为待处理的 GestureRecognizer，并执行GestureRecognizer的回调。	
+当有 UIGestureRecognizer 的变化(创建/销毁/状态改变)时，这个回调都会进行相应处理。
 
 ###### 6: 谈谈 KVC 以及 KVO 的理解
 
 答：就是为对象添加一个观察者“Observer”，当其属性值发生改变时，就会调用"observeValueForKeyPath:"方法，为我们提供一个“对象值改变了！”的时机进行一些操作。Key-Value Obersver，即键值观察。它是观察者模式的一种衍生。基本思想是，对目标对象的某属性添加观察，当该属性发生变化时，会自动的通知观察者。这里所谓的通知是触发观察者对象实现的KVO的接口方法。 
 		KVO是解决model和view同步的好法子。另外，KVO的优点是当被观察的属性值改变时是会自动发送通知的，这比通知中心需要post通知来说，简单了许多。
-		KVO:当指定的对象的属性被修改了，允许对象接收到通知的机制。利用RuntimeAPI动态生成一个子类，并且让instance对象的isa指向这个全新的子类，当修改instance对象的属性时，会调用Foundation的，_NSSetXXXValueAndNotify函数，此函数的内部实现为 调用willChangeValueForKey，调用父类(原来)的setter实现，调用didChangeValueForKey:，didChangeValueForKey:内部会调用observer的observeValueForKeyPath:ofObject:change:context:方法。Apple使用了isa混写（isa-swizzling）来实现KVO。当观察对象A时，KVO机制动态创建一个新的名为NSKVONotifying_A的新类，该类集成自对象A的本类，且KVO为NSKVONotifying_A重写观察属性的setter方法，setter方法会负责在调用元setter方法之前和之后，通知所有观察对象属性值的更改情况。（备注：isa混写（isa-swizzling）isa:is a kind of ; swizzling: 混合，搅合）
+		KVO:当指定的对象的属性被修改了，允许对象接收到通知的机制。
+利用RuntimeAPI动态生成一个子类，并且让instance对象的isa指向这个全新的子类，当修改instance对象的属性时，会调用Foundation的，_NSSetXXXValueAndNotify函数，此函数的内部实现为 调用willChangeValueForKey，调用父类(原来)的setter实现，调用didChangeValueForKey:，
+didChangeValueForKey:内部会调用observer的observeValueForKeyPath:ofObject:change:context:方法。
+Apple使用了isa混写（isa-swizzling）来实现KVO。
+当观察对象A时，KVO机制动态创建一个新的名为NSKVONotifying_A的新类，该类集成自对象A的本类，且KVO为NSKVONotifying_A重写观察属性的setter方法，setter方法会负责在调用元setter方法之前和之后，通知所有观察对象属性值的更改情况。（备注：isa混写（isa-swizzling）isa:is a kind of ; swizzling: 混合，搅合）
 		1、NSKVONotifying_A类剖析：在这个过程，被观察对象的isa指针从指向原来的A类，被KVO机制修改为指向系统创建的自NSKVONotifying_A类，来实现当前类属性值改变的监听；所以当我们从应用层面来看，完全没有意识到有新的类出现，这是系统“隐瞒”了对KVO的底层想实现过程，让我们误以为还是原来的类。但是此时如果我们创建一个新的名为“NSKVONotifying_A”的类，就会发现系统运行到注册KVO的那段代码时程序就崩溃，因为系统在注册监听的时候动态创建了名为NSKVONotifying_A的中间类，并指向这个中间类了（isa指针的作用：每个对象都有isa指针，指向该对象的类，他告诉Runtime系统这个对象的类是什么。所以对象注册为观察者时，isa指针指向新子类，那么这个被观察的对象就神奇地变成新子类的对象（或实例）了。）因而在该对象上对setter的调用就会调用已重写的setter，从而激活键值通知机制。
 		2、子类setter方法剖析：KVO的键值观察通知依赖与NSObject的两个方法：willChangeValueForKey:和didChangeValueForKey:，
 在存取数值的前后分别调用2个方法：被观察属性发生改变之前，willChangeValueForkey:被调用，通知系统该keyPath的属性值即将变更；
@@ -91,9 +228,16 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 		4.若连该成员变量也访问不到，则会在下面方法中抛出异常。之所以提供这两个方法，就是让你在因访问不到该属性而程序即将崩掉前，供你重写，在内做些处理，防止程序直接崩掉。
 		5.利用KVC即键值编码来给对象的私有属性赋值。6.如何手动触发KVO，valueForUndefinedKey:和setValue:forUndefinedKey:方法。
 
-###### 7: RunLoop 的作用是什么？它的内部工作机制了解么？
+###### 7: 讲一下对KVC和KVO的了解，KVC是否会调用setter方法？
 
-答：https://mp.weixin.qq.com/s/CTFWeNg6sZueKz8UkZEe2Q
+答：KVC (Key-Value Coding) 和 KVO (Key-Value Observing) 是 iOS 开发中常用的两种机制。
+
+- KVC (Key-Value Coding) 是一种用于访问对象属性的机制，它可以通过字符串来访问对象的属性，而不需要使用属性的 setter 和 getter 方法。KVC 可以通过 valueForKey: 和 setValue:forKey: 方法来访问和修改对象的属性。
+- KVO (Key-Value Observing) 是一种用于监听对象属性变化的机制。当一个对象的属性发生变化时，KVO 会自动通知监听者，使用者可以在对应的方法里进行相应的处理。
+
+使用 KVC 和 KVO 可以使得代码更加简洁，同时使得代码更加灵活，能够让程序更加高效地访问和监听对象的属性变化。
+
+注意：使用 KVO 时需要在监听对象销毁时取消监听，否则会造成内存泄露。
 
 ###### 8: 苹果是如何实现 autoreleasepool的？为什么这么设计？
 
@@ -151,48 +295,17 @@ NSDictionary 是一种无序集合，它可以存储多个键值对。在使用 
 4.可变类型（NSMutableString、NSMutableArray、NSMutableSet）,要用strong修饰;
 5.用copy还是strong修饰一个属性时，与深拷贝浅拷贝不要混为一谈了，是两码事。
 
-###### 14: 用runtime做过什么事情？runtime中的方法交换是如何实现的？
+###### 15: RunLoop 的作用是什么？它的内部工作机制了解么？
 
-答：用 Runtime 做的事情有很多，主要有以下几种：
+答：https://mp.weixin.qq.com/s/CTFWeNg6sZueKz8UkZEe2Q
 
-1. 动态创建类和对象：通过 Runtime 可以动态创建类和对象，实现在运行时动态添加属性和方法。
-2. 消息转发：当调用一个对象的方法时，如果这个对象没有实现这个方法，Runtime 会自动转发这个消息。
-3. 方法交换：通过 Runtime 可以交换两个方法的实现，实现在运行时修改类的行为。
-4. 关联对象：Runtime 提供了一种机制，可以在运行时为对象添加额外的数据。
+###### 16: ios 中少用NSLog
 
-方法交换是通过 Runtime 的函数 method_exchangeImplementations() 实现的。这个函数会将两个方法的实现互相交换。
+答：推荐使用其他的日志框架，如 CocoaLumberjack，XCGLogger 等
 
-例如： Method method1 = class_getInstanceMethod([self class], @selector(method1)); Method method2 = class_getInstanceMethod([self class], @selector(method2)); method_exchangeImplementations(method1, method2);
-
-这个例子会交换 self 类的 method1 和 method2 的实现。
-
-但是需要注意，在进行方法交换时，需要确保交换的方法在同一个类中，并且调用的时候不会造成死循环。
-
-###### 15: 讲一下对KVC和KVO的了解，KVC是否会调用setter方法？
-
-答：KVC (Key-Value Coding) 和 KVO (Key-Value Observing) 是 iOS 开发中常用的两种机制。
-
-- KVC (Key-Value Coding) 是一种用于访问对象属性的机制，它可以通过字符串来访问对象的属性，而不需要使用属性的 setter 和 getter 方法。KVC 可以通过 valueForKey: 和 setValue:forKey: 方法来访问和修改对象的属性。
-- KVO (Key-Value Observing) 是一种用于监听对象属性变化的机制。当一个对象的属性发生变化时，KVO 会自动通知监听者，使用者可以在对应的方法里进行相应的处理。
-
-使用 KVC 和 KVO 可以使得代码更加简洁，同时使得代码更加灵活，能够让程序更加高效地访问和监听对象的属性变化。
-
-注意：使用 KVO 时需要在监听对象销毁时取消监听，否则会造成内存泄露。
-
-###### 16: __block有什么作用
-
-答：在block内修改某局部变量需加block, MRC 环境下block在使用过程中不会对原来值进行copy，可以直接修改该变量 ，ARC环境下会对原值进行copy，内存地址也发生变化;
-block可以直接修改 全局和静态变量 ，不会copy该变量的值.
-不加__block, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
-_使用_block ,MRC环境block中不会对原来的指针进行copy，所以可以更改属性，也可以更改对象本身 ；而ARC环境则是对原对象的copy，内存地址也发生变化
-block所起到的作用就是只要观察到该变量被 block 所持有,就将“外部变量”在栈中的内存地址放到了堆中。进而在block内部也可以修改外部变量的值,
-一、block 的三种类型
-block 三种类型:全局 block，堆 block、栈 block。
-全局 block(NSGlobalBlock)：没有访问外界局部变量的 block 就是全局 block，存储在全局区。
-堆 block(NSMallocBlock)：对栈 block 进行 copy 操作返回的就是堆 block，存储在堆区。
-栈 block(NSStackBlock)：访问了外界普通局部变量的 block 就是栈 block，存储在栈区。
-二、block 建议用 copy 而不用 retain/strong 的原因
-block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/strong/copy 等修饰词修饰。但是 block 在创建的时候内存默认分配在栈上，而不是堆上的。所以它的作用域仅限创建时候的作用域内，当你在该作用域外调用该 block 时，程序就会崩溃
+1. 影响性能：在 Release 模式下， NSLog 不会被编译，但是在 Debug 模式下，它会不断写入日志，这会消耗系统资源，影响应用程序的性能。
+2. 安全性问题：使用 NSLog 记录的日志信息可能包含敏感信息，如用户的隐私数据，密码，设备信息等。如果这些日志被黑客获取，将对用户隐私和应用程序安全带来严重威胁。
+3. 难以管理：随着应用程序的不断扩大， NSLog 的日志量也会随之增加，如果没有一个良好的日志管理机制，很容易使应用程序的日志混乱不堪。
 
 ###### 17: 说一下对GCD的了解，它有那些方法，分别是做什么用的？
 
@@ -291,6 +404,14 @@ Objective-C 支持类别，它是一种特殊的接口，可以让一个类“�
 
 答：设计模式是软件工程中一种代码重用的方法，它是对软件开发中常见问题的抽象和模板化的解决方案。常用的设计模式有23种,如单例模式，工厂模式，装饰器模式，模板方法模式等.
 
+1. 单例模式（Singleton Pattern）: 保证一个类仅有一个实例，并且提供一个全局访问点。
+2. 观察者模式（Observer Pattern）: 定义对象间的一种一对多的依赖关系，当一个对象的状态发生改变时，所有依赖于它的对象都得到通知并被自动更新。
+3. 适配器模式（Adapter Pattern）: 将一个类的接口转换成客户希望的另外一个接口，使得原本不兼容的两个类可以一起工作。
+4. 工厂模式（Factory Pattern）: 定义一个用于创建对象的接口，让子类决定实例化哪一个类。
+5. 装饰模式（Decorator Pattern）: 动态地给一个对象增加一些额外的职责，就增加对象功能来说，装饰模式比生成子类实现更为灵活。
+6. 桥接模式（Bridge Pattern）: 将抽象部分与它的实现部分分离，使它们都可以独立地变化。
+7. 策略模式（Strategy Pattern）: 定义一系列算法，把它们一个个封装起来，并且使它们可以相互替换。
+
 其中之一的设计模式是单例模式。
 
 单例模式是一种常用的设计模式，它确保一个类只有一个实例，并提供一个全局访问点。
@@ -303,7 +424,6 @@ Objective-C 支持类别，它是一种特殊的接口，可以让一个类“�
 - 提供静态的访问方法
 
 ```objective-c
-
 @implementation Singleton
 
 + (Singleton *)sharedInstance
@@ -408,22 +528,35 @@ bookName的声明中指定属性nonatomic，表示为非线程安全的，set方
 
 ###### 30、iOS内存管理方式
 
+retain：持有，对原对象引用计数加1，强引用。ARC中使用strong。
+copy：拷贝，复制一个对象并创建strong关联，引用计数为1 ，原来对象计数不变。
+assign：赋值，不涉及引用计数的变化，弱引用。ARC中对象不使用assign,但原始类型(BOOL、int、float)仍然可以使用,assign修饰的对象，当对象释放之后，即引用计数为0时，指针变量并不会同时置为nil，全局变量就是变为野指针，不知道指向哪，再向该对象发消息，非常容易崩溃。
+因此，当属性类型是对象时，不要使用assign，会带来一些风险。
+weak：赋值（ARC），比assign多了一个功能，对象释放后把指针置为nil，避免了野指针,weak只能用来修饰对象，不能用来修饰基本数据类型。
+strong：持有（ARC），等同于retain。
+在你打开ARC时，你是不能使用retain、release、autorelease 操作的，原先需要手动添加的用来处理内存管理的引用计数的代码可以自动地由编译器完成了，需要在对象属性上使用weak 和strong, 其中strong就相当于retain属性，而weak相当于assign，基础类型只需声明非原子锁即可。
+其他非对象类型（int、char、float、double、struct、enum 等）则存放在栈区，由系统进行分配和释放，对象的成员变量进行赋值后，会从栈区复制一份到堆区。
+代码区：用于存放程序的代码，即 CPU 执行的机器指令，并且是只读的。
+\* 全局区 / 静态区：它主要存放静态数据、全局数据和常量。分为未初始化全局区（BSS 段）、初始化全局区：（数据段）。程序结束后由系统释放。
+\* 数据段：用于存放可执行文件中已经初始化的全局变量，也就是用来存放静态分配的变量和全局变量。
+\* BSS 段：用于存放程序中未初始化的全局变量。
+\* 常量区：用于存储已经初始化的常量。程序结束后由系统释放。
+\* 栈区（Stack）：用于存放程序 临时创建的变量、存放函数的参数值、局部变量等。从上往下，地址是连续的，由编译器自动分配释放。
+\* 堆区（Heap）：用于存放alloc分配的对象，copy之后的block变量（copy后其实是一个对象）等，从下往上，是链表结构，地址不连续的，由程序员分配和释放。
+对象的创建和释放：创建对象种时需要申请内存，使用完对象后要及时释放。在 Objective-C 中使用自动引用计数 (ARC) 可以解决大部分内存管理问题。但在某些特殊情况下，如循环引用等，仍然需要手动管理内存。
+图像缓存：在 iOS 开发中，图像是一种常见的内存占用者。为了避免内存暴涨，可以使用图像缓存技术，例如 NSCache 和 SDWebImage。
+注意循环引用：循环引用是一常见的内存泄漏原因。为了避免循环引用，需要正确使用 weak 和 unowned 关键字，在必要的时候手动管理内存。
+定期检查内存使用情况：通过 Xcode 的 Instrument 工具可以定期检查应用的内存使用情况，快速发现内存泄漏和暴涨的问题，并及时解决。
+
 Tagged Pointer（小对象）
-
 Tagged Pointer 专门用来存储小的对象，例如 NSNumber 和 NSDate
-
 Tagged Pointer 指针的值不再是地址了，而是真正的值。所以，实际上它不再是一个对象了，它只是一个披着对象皮的普通变量而已。所以，它的内存并不存储在堆中，也不需要 malloc 和 free
-
 在内存读取上有着 3 倍的效率，创建时比以前快 106 倍
-
 objc_msgSend 能识别 Tagged Pointer，比如 NSNumber 的 intValue 方法，直接从指针提取数据
-
 使用 Tagged Pointer 后，指针内存储的数据变成了 Tag + Data，也就是将数据直接存储在了指针中
-
 NONPOINTER_ISA （指针中存放与该对象内存相关的信息） 苹果将 isa 设计成了联合体，在 isa 中存储了与该对象相关的一些内存的信息，原因也如上面所说，并不需要 64 个二进制位全部都用来存储指针。
 
 isa 的结构：
-
 // x86_64 架构
 struct {
     uintptr_t nonpointer        : 1;  // 0:普通指针，1:优化过，使用位域存储更多信息
@@ -466,60 +599,6 @@ struct {
 
 弱引用表也是一张哈希表的结构，其内部包含了每个对象对应的弱引用表 weak_entry_t，而 weak_entry_t 是一个结构体数组，其中包含的则是每一个对象弱引用的对象所对应的弱引用指针。
 
-###### 31、runtime 如何实现 weak 属性？
-
-weak 此特质表明该属性定义了一种「非拥有关系」(nonowning relationship)。为这种属性设置新值时，设置方法既不持有新值（新指向的对象），也不释放旧值（原来指向的对象）。
-
-runtime 对注册的类，会进行内存布局，从一个粗粒度的概念上来讲，这时候会有一个 hash 表，这是一个全局表，表中是用 weak 指向的对象内存地址作为 key，用所有指向该对象的 weak 指针表作为 value。当此对象的引用计数为 0 的时候会 dealloc，假如该对象内存地址是 a，那么就会以 a 为 key，在这个 weak 表中搜索，找到所有以 a 为键的 weak 对象，从而设置为 nil。
-
-runtime 如何实现 weak 属性具体流程大致分为 3 步：
-
-1、初始化时：runtime 会调用 objc_initWeak 函数，初始化一个新的 weak 指针指向对象的地址。
-
-2、添加引用时：objc_initWeak 函数会调用 objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向（指针可能原来指向着其他对象，这时候需要将该 weak 指针与旧对象解除绑定，会调用到 weak_unregister_no_lock），如果指针指向的新对象非空，则创建对应的弱引用表，将 weak 指针与新对象进行绑定，会调用到 weak_register_no_lock。在这个过程中，为了防止多线程中竞争冲突，会有一些锁的操作。
-
-3、释放时：调用 clearDeallocating 函数，clearDeallocating 函数首先根据对象地址获取所有 weak 指针地址的数组，然后遍历这个数组把其中的数据设为 nil，最后把这个 entry 从 weak 表中删除，最后清理对象的记录。
-
-###### 32、runtime如何通过selector找到对应的IMP地址？
-
-每一个类对象中都一个对象方法列表（对象方法缓存）
-
-类方法列表是存放在类对象中isa指针指向的元类对象中（类方法缓存）。
-
-方法列表中每个方法结构体中记录着方法的名称,方法实现,以及参数类型，其实selector本质就是方法名称,通过这个方法名称就可以在方法列表中找到对应的方法实现。
-
-当我们发送一个消息给一个NSObject对象时，这条消息会在对象的类对象方法列表里查找。
-
-当我们发送一个消息给一个类时，这条消息会在类的Meta Class对象的方法列表里查找。
-
-###### 33.简述下Objective-C中调用方法的过程
-
-Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
-objc在向一个对象发送消息时，runtime库会根据对象的isa指针找到该对象实际所属的类
-然后在该类中的方法列表以及其父类方法列表中寻找方法运行
-如果，在最顶层的父类（一般也就NSObject）中依然找不到相应的方法时，程序在运行时会挂掉并抛出异常unrecognized selector sent to XXX
-但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会(+ (void)load 方法：这是在类加载到内存中时调用的方法，可以用来执行一些预处理工作。(void)initialize 方法：这是在类的第一次调用之前调用的方法，可以用来初始化类的状态。(void)dealloc 方法：这是在对象被销毁之前调用的方法，可以用来做一些清理工作。)，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
-
-首先，程序中会调用某个对象的方法，使用如下的语法：
-[object method];
-然后，Objective-C 的运行时系统会检查 object 所属的类，看是否有名为 method 的方法。
-如果类中存在该方法，运行时系统就会调用该方法，并将执行流程交给方法体。
-如果类中不存在该方法，运行时系统就会尝试在父类中寻找该方法。如果父类中也不存在该方法，运行时系统就会继续在父类的父类中查找，直到找到该方法或者查找到了根类为止。
-如果在整个继承链中都找不到该方法，程序就会抛出一个异常，终止程序的执行。
-如果找到了该方法，方法体就会被执行，直到方法执行完毕为止。
-
-###### 34、.load和initialize的区别
-
-两者都会自动调用父类的，不需要super操作，且仅会调用一次（不包括外部显示调用).
-
-load和initialize方法都会在实例化对象之前调用，以main函数为分水岭，前者在main函数之前调用，后者在之后调用。这两个方法会被自动调用，不能手动调用它们。
-
-load和initialize方法都不用显示的调用父类的方法而是自动调用，即使子类没有initialize方法也会调用父类的方法，而load方法则不会调用父类。
-
-load方法通常用来进行Method Swizzle，initialize方法一般用于初始化全局变量或静态变量。
-
-load和initialize方法内部使用了锁，因此它们是线程安全的。实现时要尽可能保持简单，避免阻塞线程，不要再使用锁。
-
 ###### 线程锁
 
 答：循环锁NSRecursiveLock，条件锁NSConditionLock，分布式锁NSDistributedLock
@@ -547,7 +626,15 @@ isa 的作用是在运行时动态确定对象的类型，以便于消息转发�
 
 ###### 4: load 和 initialize 的区别？
 
-答：load是main函数之前调用的，initialize是类第一次接收到消息的时候调用的，每一个类只会initialize一次(如果子类没有实现+initialize，会调用父类的+initialize（所以父类的+initialize可能会被调用多次）,如果分类实现了+initialize，就覆盖类本身的+initialize调用)
+答：load是main函数之前调用的，initialize是类第一次接收到消息的时候调用的，每一个类只会initialize一次(如果子类没有实现+initialize，会调用父类的+initialize（所以父类的+initialize可能会被调用多次）,如果分类实现了+initialize，就覆盖类本身的+initialize调用)两者都会自动调用父类的，不需要super操作，且仅会调用一次（不包括外部显示调用).
+
+load和initialize方法都会在实例化对象之前调用，以main函数为分水岭，前者在main函数之前调用，后者在之后调用。这两个方法会被自动调用，不能手动调用它们。
+
+load和initialize方法都不用显示的调用父类的方法而是自动调用，即使子类没有initialize方法也会调用父类的方法，而load方法则不会调用父类。
+
+load方法通常用来进行Method Swizzle，initialize方法一般用于初始化全局变量或静态变量。
+
+load和initialize方法内部使用了锁，因此它们是线程安全的。实现时要尽可能保持简单，避免阻塞线程，不要再使用锁。
 
 ###### 5: _objc_msgForward 函数是做什么的？直接调用会发生什么问题？
 
@@ -587,9 +674,124 @@ AOP通过使用切面（aspect）来管理这些横切关注点。切面是一�
 
 ###### 10: 调用runtime registerClass方法，创建出来了几个类？	
 
-答：实例对象、类对象、runtime，	成员变量保存在class_rw_t->class_ro_t 实例对象 本质 objc结构题就是一个对象ISA从objc_object继承过来的     class_ro_t存储了当前类在编译期就已经确定的属性、方法以及遵循的协议，里面是没有分类的方法的。那些运行时添加的方法将会存储在运行时生成的class_rw_t中。    // 可读可写    struct class_rw_t {      // Be warned that Symbolication knows the layout of this structure.      uint32_t flags;      uint32_t version;      const class_ro_t *ro; // 指向只读的结构体,存放类初始信息      /*      这三个都是二位数组，是可读可写的，包含了类的初始内容、分类的内容。      methods中，存储 method_list_t ----> method_t      二维数组，method_list_t --> method_t      这三个二位数组中的数据有一部分是从class_ro_t中合并过来的。      */      method_array_t methods; // 方法列表（类对象存放对象方法，元类对象存放类方法）      property_array_t properties; // 属性列表      protocol_array_t protocols; //协议列表          Class firstSubclass;      Class nextSiblingClass;      //...     }        rw什么时候创建的 ：运行时创建的 copy进来 可读写的 属性 方法 协议 脏内存 数据昂贵 一直存在    ro什么时候创建的 ：编译的时候创建的 只读状态 成员变量 可移除 保持清洁的数据 永远不可改变     ISA 实例对象 类对象 指向元类 根元类 指向自己    SEL 方法编号    IMP 函数指针 保存了方法的地址    Method 参数类型描述字符串    设计元类的原类 (复用消息通道，类方法也可以放在Class里，但发送消息时，需要增加一个参数) 是实例 类对象方法    发送消息 消息发送 消息转发 runtime 是查找的元类 类方法    https://www.jianshu.com/p/da200b79a6af     
+答：实例对象、类对象、runtime，成员变量保存在class_rw_t->class_ro_t 
+实例对象 本质 objc结构题就是一个对象ISA从objc_object继承过来的     
+class_ro_t存储了当前类在编译期就已经确定的属性、方法以及遵循的协议，里面是没有分类的方法的。那些运行时添加的方法将会存储在运行时生成的class_rw_t中。   
 
-###### 11: Objc为什么要设计消息发送机制，直接调函数有什么缺点？
+// 可读可写
+struct class_rw_t {
+// Be warned that Symbolication knows the layout of this structure.
+uint32_t flags;
+uint32_t version;
+const class_ro_t ro;
+// 指向只读的结构体,存放类初始信息
+/* 这三个都是二位数组，是可读可写的，包含了类的初始内容、分类的内容。
+methods中，存储 method_list_t ----> method_t 二维数组，
+method_list_t --> method_t 这三个二位数组中的数据有一部分是从class_ro_t中合并过来的。 */
+method_array_t methods;
+// 方法列表（类对象存放对象方法，元类对象存放类方法）
+property_array_t properties;
+// 属性列表 protocol_array_t protocols;
+//协议列表 Class firstSubclass; Class nextSiblingClass;
+ }
+rw什么时候创建的 ：运行时创建的 copy进来 可读写的 属性 方法 协议 脏内存 数据昂贵 一直存在
+ro什么时候创建的 ：编译的时候创建的 只读状态 成员变量 可移除 保持清洁的数据 永远不可改变 ISA 实例对象 类对象 指向元类 根元类 指向自己 SEL 方法编号 IMP 函数指针 保存了方法的地址 Method 参数类型描述字符串 设计元类的原类 (复用消息通道，类方法也可以放在Class里，但发送消息时，需要增加一个参数)
+是实例 类对象方法 发送消息 消息发送 消息转发 runtime 是查找的元类 类方法 https://www.jianshu.com/p/da200b79a6af
+
+###### 11: 用runtime做过什么事情？runtime中的方法交换是如何实现的？
+
+答：用 Runtime 做的事情有很多，主要有以下几种：
+
+1. 动态创建类和对象：通过 Runtime 可以动态创建类和对象，实现在运行时动态添加属性和方法。
+2. 消息转发：当调用一个对象的方法时，如果这个对象没有实现这个方法，Runtime 会自动转发这个消息。
+3. 方法交换：通过 Runtime 可以交换两个方法的实现，实现在运行时修改类的行为。
+4. 关联对象：Runtime 提供了一种机制，可以在运行时为对象添加额外的数据。
+5. 动态类型：在运行时，可以动态地改变类型，而不需要重新编译程序。
+6. 动态绑定：在运行时，可以动态地绑定对象，而不需要重新编译程序。
+7. 动态加载：在运行时，可以动态地加载类，而不需要重新编译程序。
+8. 动态调用：在运行时，可以动态地调用方法，而不需要重新编译程序。
+9. 动态分配：在运行时，可以动态地分配内存，而不需要重新编译程序。
+10. 动态编译：在运行时，可以动态地编译代码，而不需要重新编译程序。
+
+方法交换是通过 Runtime 的函数 method_exchangeImplementations() 实现的。这个函数会将两个方法的实现互相交换。
+
+例如： Method method1 = class_getInstanceMethod([self class], @selector(method1)); Method method2 = class_getInstanceMethod([self class], @selector(method2)); method_exchangeImplementations(method1, method2);
+
+这个例子会交换 self 类的 method1 和 method2 的实现。
+
+但是需要注意，在进行方法交换时，需要确保交换的方法在同一个类中，并且调用的时候不会造成死循环。
+
+###### 12:runtime 如何实现 weak 属性？
+
+答：weak 此特质表明该属性定义了一种「非拥有关系」(nonowning relationship)。为这种属性设置新值时，设置方法既不持有新值（新指向的对象），也不释放旧值（原来指向的对象）。
+
+runtime 对注册的类，会进行内存布局，从一个粗粒度的概念上来讲，这时候会有一个 hash 表，这是一个全局表，表中是用 weak 指向的对象内存地址作为 key，用所有指向该对象的 weak 指针表作为 value。当此对象的引用计数为 0 的时候会 dealloc，假如该对象内存地址是 a，那么就会以 a 为 key，在这个 weak 表中搜索，找到所有以 a 为键的 weak 对象，从而设置为 nil。runtime 如何实现 weak 属性具体流程大致分为 3 步：
+
+1、初始化时：runtime 会调用 objc_initWeak 函数，初始化一个新的 weak 指针指向对象的地址。
+Runtime会维护一个Weak表,用于维护指向对象的所有weak指针。
+Weak表是一个哈希表,其key为所指对象的指针,vaue为Weak指针的地址数组。
+具体过程如下:
+1、初始化时: runtime会调用 objc_initWeak函数初始化一个新的weak指针指向对象的地址。
+2、添加引用时: objc_initWeak函数会调用objc storeWeak(0)函数,更新指针指向,创建对应的弱引用表。
+3、释放时,调用 clearDeallocating函数clearDeallocating函数首先根据对象地址获取所有Weak指针地址的数组,然后遍历这个数组把其中的数据设为n,最后把这个enty从Weak表中删除,最后清理对象的记录。
+当weak引用指向的对象被释放时，又是如何去处理weak指针的呢？
+
+当释放对象时，其基本流程如下：
+1、调用objc_release
+2、因为对象的引用计数为0，所以执行dealloc
+3、在dealloc中，调用了objc_rootDealloc函数
+4、在objc_rootDealloc中，调用了object_dispose函数
+5、调用objc_destructInstance
+6、最后调用objc_clear_deallocating,
+
+详细过程如下：
+a. 从weak表中获取废弃对象的地址为键值的记录
+b. 将包含在记录中的所有附有 weak修饰符变量的地址，赋值为 nil
+c. 将weak表中该记录删除
+d. 从引用计数表中删除废弃对象的地址为键值的记录
+
+2、添加引用时：objc_initWeak 函数会调用 objc_storeWeak() 函数，objc_storeWeak() 的作用是更新指针指向（指针可能原来指向着其他对象，这时候需要将该 weak 指针与旧对象解除绑定，会调用到 weak_unregister_no_lock），如果指针指向的新对象非空，则创建对应的弱引用表，将 weak 指针与新对象进行绑定，会调用到 weak_register_no_lock。在这个过程中，为了防止多线程中竞争冲突，会有一些锁的操作。
+
+3、释放时：调用 clearDeallocating 函数，clearDeallocating 函数首先根据对象地址获取所有 weak 指针地址的数组，然后遍历这个数组把其中的数据设为 nil，最后把这个 entry 从 weak 表中删除，最后清理对象的记录。
+
+###### 13:runtime如何通过selector找到对应的IMP地址？
+
+答：每一个类对象中都一个对象方法列表（对象方法缓存）
+
+类方法列表是存放在类对象中isa指针指向的元类对象中（类方法缓存）。
+
+方法列表中每个方法结构体中记录着方法的名称,方法实现,以及参数类型，其实selector本质就是方法名称,通过这个方法名称就可以在方法列表中找到对应的方法实现。
+
+当我们发送一个消息给一个NSObject对象时，这条消息会在对象的类对象方法列表里查找。
+当我们发送一个消息给一个类时，这条消息会在类的Meta Class对象的方法列表里查找。
+
+###### 14:简述下Objective-C中调用方法的过程
+
+答：Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
+
+objc在向一个对象发送消息时，runtime库会根据对象的isa指针找到该对象实际所属的类
+
+然后在该类中的方法列表以及其父类方法列表中寻找方法运行
+
+如果，在最顶层的父类（一般也就NSObject）中依然找不到相应的方法时，程序在运行时会挂掉并抛出异常unrecognized selector sent to XXX
+
+但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会(+ (void)load 方法：这是在类加载到内存中时调用的方法，可以用来执行一些预处理工作。(void)initialize 方法：这是在类的第一次调用之前调用的方法，可以用来初始化类的状态。(void)dealloc 方法：这是在对象被销毁之前调用的方法，可以用来做一些清理工作。)，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
+
+首先，程序中会调用某个对象的方法，使用如下的语法：
+
+[object method];
+
+然后，Objective-C 的运行时系统会检查 object 所属的类，看是否有名为 method 的方法。
+
+如果类中存在该方法，运行时系统就会调用该方法，并将执行流程交给方法体。
+
+如果类中不存在该方法，运行时系统就会尝试在父类中寻找该方法。如果父类中也不存在该方法，运行时系统就会继续在父类的父类中查找，直到找到该方法或者查找到了根类为止。
+
+如果在整个继承链中都找不到该方法，程序就会抛出一个异常，终止程序的执行。
+
+如果找到了该方法，方法体就会被执行，直到方法执行完毕为止。
+
+###### 15:Objc为什么要设计消息发送机制，直接调函数有什么缺点？
 
 答：消息发送机制对于直接调函数
  主要是多了一个消息动态解析以及消息转发
@@ -820,17 +1022,54 @@ post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数
 
 ###### 13、为什么说子线程不能更新UI呢？
 
-​	答：
-UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。   
- 		两个异步线程同时做某些操作 可能发生不被预期的情况：    
-​	 	同时设置一个视图的背景图片很有可能因为当前图片被释放了两次导致应用程序的crash;   
- 		同时设置一个视图的背景颜色很有可能渲染树显示的是颜色属性A，而此时的视图的逻辑树储存的是颜色属性B；   
- 		同时操作一个视图的属性结构比如线程A循环便利所有的子视图，而此时线程B中将某个子视图直接删除，这样不仅会导致A的错乱		还可能导致应用程序的崩溃；    
-​		将大部分视图绘制方法属性改为了线程安全，但仍强烈建议将UI操作放在主线程，原因是是属性图存在读写，不可能全部改写为线程安全。    
-​		UI更新一定要在主线程实现的原因：    
-​		系统默认是没有加锁的，多个线程被允许同时访问更新同一个UI控件，也就是所谓的Ui访问时候系统当中的UI控件都不是安全的，在多线程中变得不可控；    
-​		规定只能在主线程访问UI，相当于是一种UI访问加的锁；    
+​	答：UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。
+ 		两个异步线程同时做某些操作 可能发生不被预期的情况：
+​	 	同时设置一个视图的背景图片很有可能因为当前图片被释放了两次导致应用程序的crash; 
+ 		同时设置一个视图的背景颜色很有可能渲染树显示的是颜色属性A，而此时的视图的逻辑树储存的是颜色属性B；    		 同时操作一个视图的属性结构比如线程A循环便利所有的子视图，而此时线程B中将某个子视图直接删除，这样不仅会导致A的错乱，还可能导致应用程序的崩溃；
+​		将大部分视图绘制方法属性改为了线程安全，但仍强烈建议将UI操作放在主线程，原因是是属性图存在读写，不可能全部改写为线程安全。
+​		UI更新一定要在主线程实现的原因：
+​		系统默认是没有加锁的，多个线程被允许同时访问更新同一个UI控件，也就是所谓的Ui访问时候系统当中的UI控件都不是安全的，在多线程中变得不可控；
+​		规定只能在主线程访问UI，相当于是一种UI访问加的锁；
 ​		多线程更多的是算力，而非不断的进行UI的更新，保证处理UI的事件都在串行队列中进行。
+
+###### 14、AFNetworking原理
+
+答：AFNetworking是一个 Objective-C 的 HTTP 网络库，它提供了强大的网络请求功能。AFNetworking 底层是基于 Apple 官方提供的 Foundation Networking 和 System Configuration 框架，并在此基础上进行了高层封装。
+AFNetworking 的核心是AFURLConnectionOperation 类，这个类封装了一个 NSURLConnection 对象，提供了简单易用的接口。它支持网络请求的各种方式，如 GET、POST、PUT、DELETE、HEAD等。
+AFNetworking 还支持文件上传、文件下载、后台下载、数据的缓存等功能，并对网络状态的监测和管理，有更好的处理。
+AFNetworking 框架的优点：
+
+- 简单易用，API 接口清晰明了；
+
+- 支持同步异步网络请求；
+
+- 支持多种请求方式；
+
+- 支持文件下载和文件上传；
+
+- 支持网络状态的监测和管理；
+
+- 对常见错误的提示；
+
+- 支持队列，可以控制请求的顺序。
+
+- AFNetworking 框架的缺点：	
+
+- 1	过于依赖回调：AFNetworking使用回调函数处理响应数据，这不利于代码的可读性和可维护性。
+
+- 2	缺少可扩展性：AFNetworking的扩展性不足，无法适应特殊的网络请求需求。
+
+- 3	无法处理错误：AFNetworking没有统一的错误处理方式，需要开发者自己实现错误处理。
+
+- 4	可能存在线程安全问题：AFNetworking使用回调函数和多线程，有可能存在线程安全问题。
+
+- 5	无法跟踪请求状态：AFNetworking不能直接跟踪请求状态，需要开发者手动实现。
+
+- 弥补：	
+  1。Alamofire：这是 AFNetworking 的 Swift 版本，已经发布了许多版本，且具有更好的代码结构和语法简洁性。
+  2。Moya：这是一个更加简洁的网络请求库，在简洁和灵活性方面比 AFNetworking 更胜一筹。
+
+  3。Network：这是一个受欢迎的网络请求库，在代码简洁性和高效性方面比 AFNetworking 有很大的提高
 
 #### 数据结构问题
 
@@ -935,6 +1174,26 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 }
 ```
 
+###### 11:5个节点找到中间节点
+
+你可以用快慢指针的方法来找到链表的中间节点。快指针每次向后走两个节点，慢指针每次向后走一个节点。当快指针到达链表末尾时，慢指针恰好在中间节点处。
+
+```python
+// 这是一种 O(n) 时间复杂度和 O(1) 空间复杂度的方法。
+class ListNode:
+    def __init__(self, x):
+        self.val = x
+        self.next = None
+
+def findMiddleNode(head):
+    slow = head
+    fast = head
+    while fast and fast.next:
+        slow = slow.next
+        fast = fast.next.next
+    return slow
+```
+
 #### 架构设计问题
 
 ###### 1: 设计模式是为了解决什么问题的？
@@ -948,7 +1207,17 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 ###### 2: 看过哪些第三方框架的源码，它们是怎么设计的？
 
-答：
+答：SDWebImage是一款非常流行的图片加载和缓存的开源库。它的不足在于：
+
+1. 内存占用过大：SDWebImage 使用内存缓存策略，容易造成内存占用过多的问题，对于对内存较敏感的应用程序尤其如此。
+2. 缓存策略非常简单：SDWebImage 没有使用复杂的缓存策略，对于复杂的缓存需求需要自己编写代码实现。
+3. 没有提供接口进行定制：SDWebImage 没有提供相应的接口进行定制，对于更复杂的图片加载需求需要自己进行扩展。
+
+为了优化 SDWebImage 的性能，可以：
+
+1. 使用磁盘缓存：可以结合磁盘缓存和内存缓存，减小内存占用的同时进一步优化图片加载的速度。
+2. 实现自定义缓存策略：可以通过继承现有缓存策略实现自定义缓存策略。
+3. 扩展SDWebImage：可以通过扩展 SDWebImage 来满足更多的图片加载需求。
 
 ###### 3: 可以说几个重构的技巧么？你觉得重构适合什么时候来做？
 
@@ -975,6 +1244,11 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 2. 可维护性：代码结构要清晰，方便后期维护。
 3. 可扩展性：要考虑到项目可能需要扩展或增加新功能。
 4. 技术选型：框架、工具和第三方库等技术的选择要认真考虑。
+5. 解耦：通过模块分离、接口隔离等方式，使代码变得可重复使用、维护性高。
+6. 稳定性：项目架构应该尽可能保证代码稳定性和正确性。
+7. 灵活性：架构应该允许灵活的扩展，使项目能适应新的需求变化。
+8. 可读性：代码结构、命名等应该具有较高的可读性，方便他人阅读和维护。
+9. 可扩展性：架构应该尽可能的支持项目的扩展。
 
 常用的架构设计模式包括：MVC，MVVM，VIPER，Clean Architecture 等。在实际应用中，选择哪种模式取决于实际的需求和因素。
 
@@ -996,6 +1270,52 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
  2、框架是指以具体的软件实现某种或多种特定功能需求（强调先通用在专用，项目里边都会对第三方框架做二次封装）。架构是思想（强调先大局在局部）。
  3、框架是抽象的解决方案（关注大局忽略细节的实现，因为还强调通用性所以多是半成品）
  4、两者都是为解决软件开发越来越复杂而采取的策略手段。
+
+1. 请说说你对 iOS 架构的理解。
+
+   答：
+
+2. 请描述 MVC，MVP 和 MVVM 架构模式的区别。
+   答：
+
+3. 请说说你最喜欢的 iOS 架构模式，以及原因。
+   答：我最喜欢的 iOS 架构模式是MVC（Model-View-Controller）模式，它将应用程序的功能分为三个部分：模型（Model）、视图（View）和控制器（Controller）。这种模式可以有效地将应用程序的功能分离，使得程序的维护和开发更加容易，同时也可以提高程序的可扩展性和可维护性。
+
+4. 请说说如何使用协议和委托进行架构设计。
+   答：
+
+5. 请说说怎样使用依赖注入提高代码可测试性。
+   答：
+
+6. 请说说怎样使用网络层封装，以提高代码复用性。
+   答：网络层封装的目的是把网络请求的逻辑从应用的业务逻辑中分离出来，避免业务代码繁琐的网络请求细节。
+
+   常见的做法是：
+
+   1. 设计一个网络层抽象类，定义网络请求的公共接口，例如请求方式，请求参数等。
+   2. 为不同的请求实现不同的网络请求类，继承网络层抽象类，实现自己的请求逻辑。
+   3. 通过工厂模式或者其他方法来统一生成请求实例，统一处理请求的响应结果。
+
+7. 请说说如何使用 Core Data 管理数据。
+   答：
+
+8. 请说说你使用过的 iOS 数据存储技术，以及它们的优劣。
+   答：
+
+9. 常见的 iOS 数据存储技术有：
+
+   - Core Data：支持对象图模型，提供了高级查询、数据迁移等功能，适用于大型数据存储；但是涉及到 Core Data 的实现机制，可能不够直观，对于一些简单的存储需求，使用起来会显得很冗余。
+   - SQLite：灵活的 SQL 查询语言，同样适用于大型数据存储；但是需要手动编写比较多的 SQL 语句，并且不支持对象图模型。
+   - NSUserDefaults：简单易用，适用于存储少量的配置信息和状态；但是不适用于大型数据存储。
+   - NSKeyedArchiver：实现了对象图模型的存储，适用于存储一些对象的状态；但是存储的对象必须遵循 NSCoding 协议，不能存储数据库查询结果。
+
+   在实际项目中，选择哪种存储技术，取决于项目的实际需求，可以根据存储数据的复杂度、数据结构、读写频率等因素来进行选择。
+
+10. 请说说如何使用 iOS 动画技术进行用户体验改进。
+    答：
+
+11. 请说说如何使用多线程技术优化 iOS 应用的性能
+    答：
 
 #### 性能优化问题
 
@@ -1019,6 +1339,11 @@ UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在�
 
 8. 使用批量操作：使用批量操作，避免对 TableView 进行多次单独的操作。
 
+   1. 可重用性：TableView的设计使得其中的行可以很方便的复用，可以有效减少内存的使用和提高性能。
+   2. 数据管理：TableView可以方便的管理大量的数据，并根据需要显示出必要的数据。
+   3. 视觉效果：TableView可以通过自定义cell、分组、索引等功能，实现漂亮的视觉效果。
+   4. 用户体验：TableView提供了良好的用户体验，可以让用户方便的浏览数据列表并进行操作。
+   
    TableView需要数据源来实现协议方法是因为这样可以更好地控制tableView的数据和样式。数据源通过协议方法与tableView进行通信，告诉tableView如何显示数据，例如提供行数，单元格的高度等。数据源还可以维护自己的数据，并在tableView需要数据时返回。这种设计模式可以提高代码的可读性和可维护性。
 
 ###### 2: 界面卡顿和检测你都是怎么处理？
@@ -1151,6 +1476,11 @@ image = [image compressImageWithMaxLength:100 * 1024];
 3. 添加断点：在代码中设置断点并使用「Debug Navigator」监视内存使用情况。
 4. 使用内存警告：在 Xcode 设置「Edit Scheme」，选择「Diagnostics」并启用「Enable Zombie Objects」。
 5. 使用第三方工具：使用如「LeakEye」等第三方内存泄漏检测工具。
+6. 在ARC（Automatic Reference Counting）模式下，以下情况可能导致内存泄漏：
+   1. 循环引用：当两个对象互相引用时，ARC不能正确管理其引用计数，导致内存泄漏。
+   2. 未被使用的闭包：如果闭包被强制执行并引用了一个对象，但没有被正确释放，那么对象就会被泄漏。
+   3. 没有释放的单例模式：如果使用单例模式创建对象，并且在整个生命周期内一直保留，那么对象就会被泄漏。
+   4. 未正确使用的指针：如果指针没有正确释放，或者释放的不是正确的对象，那么就会造成内存泄漏。
 
 ###### 6: APP启动时间应从哪些方面优化？
 
@@ -1489,7 +1819,7 @@ dispatch_async(queue, ^{
  1、点击屏幕-> UIApplication -> UIWindow -> hittest -> pointInside -> subviews -> 遍历view -> subview hittest->hit != nil 执行事件
  **runloop**
  	 1、全局的Dictionary，key 是 pthread_t， value 是 CFRunLoopRef
- 	2、线程和 RunLoop 之间是一一对应的，其关系是保存在一个全局的 Dictionary 里。线程刚创建时并没有 RunLoop，如果你不主动获取，那它一直都不会有。RunLoop 的创建是发生在第一次获取时，RunLoop 的销毁是发生在线程结束时
+ 	 2、线程和 RunLoop 之间是一一对应的，其关系是保存在一个全局的 Dictionary 里。线程刚创建时并没有 RunLoop，如果你不主动获取，那它一直都不会有。RunLoop 的创建是发生在第一次获取时，RunLoop 的销毁是发生在线程结束时
  	3、一个 RunLoop 包含若干个 Mode，每个 Mode 又包含若干个 Source/Timer/Observer
  	4、Source1：port通信，系统事件捕捉；source0只有一个回调函数 没有port
   5、主线程的RunLoop是默认开启的，所以程序在开启后，会一直运行，不会退出。其他线程的RunLoop如果需要开启，就手动开启
@@ -1567,7 +1897,11 @@ https://blog.csdn.net/MinggeQingchun/article/details/117471901
 
 ###### 动态链接到虚拟内存和machO文件及物理内存之间的地址映射转换吗？
 
-l lvm: 
+动态链接是指在程序运行期间通过链接库文件将函数和变量等符号引用与符号定义进行连接的过程。在 macOS 系统中，程序的链接是基于 Mach-O 格式进行的，该格式定义了程序在虚拟内存中的布局，包括代码段、数据段、BSS 段等。虚拟内存是操作系统提供的一种地址空间，每个进程都有自己的虚拟地址空间，虚拟地址与物理地址之间的映射关系由操作系统的内存管理单元（MMU）维护。
+
+当程序中的某个符号被引用时，动态链接器会在已加载的库文件中查找符号定义，并将其地址填充到符号引用处。由于虚拟地址空间与物理地址空间之间的映射关系是动态变化的，因此需要进行地址映射转换。这个过程由操作系统内核中的虚拟内存管理单元（VMM）负责，通过页表实现虚拟地址到物理地址的映射。
+
+简单来说，动态链接到虚拟内存和 Mach-O 文件及物理内存之间的地址映射转换由操作系统的 VMM 和 MMU 实现。
 
 Clang:
 
@@ -1828,6 +2162,23 @@ OC 与 Flutter 交互需要注意以下几点：
 - 需要确保 iOS 和 Flutter 端使用相同的 method channel 名称
 - 需要在 iOS 端使用 flutter_viewcontroller 进行渲染
 - 需要在 Swift 端转换数据类型，以便与 Flutter 端进行交互
+  在 Swift 代码中，可以使用 `FlutterMethodCall` 的 invokeMethod 函数向 Flutter 端传递 Int 值。首先，在 Flutter 端通过 `MethodChannel` 注册接收函数，其中参数是 Int 类型，然后在 Swift 代码中调用 invokeMethod 函数，并将 Int 值作为参数传入。
+
+  ```Swift
+  // Swift 代码：
+  let channel = FlutterMethodChannel(name: "test_channel", binaryMessenger: controller)
+  channel.invokeMethod("testMethod", arguments: 123)
+  ```
+
+  ```dart
+  //Flutter 代码：
+  MethodChannel('test_channel').setMethodCallHandler((call) {
+    if (call.method == 'testMethod') {
+      int data = call.arguments;
+      // 处理传递的 Int 值
+    }
+  });
+  ```
 
 注意:
 
@@ -2397,6 +2748,15 @@ swift增强了结构体和枚举的使用,结构体和枚举也可以有构造�
 协议中,当在结构体或者枚举实现协议方法时,若对自身属性作修改,需要将协议的方法声明为mutating,对类无影响.
 
 在扩展中,同样若对自身属性作修改,需要将方法声明为mutating
+
+###### 你如何使用swift进行内存管理的？
+
+答：Swift 使用自动引用计数（ARC）来管理内存，并且在大多数情况下会自动帮助开发者处理内存管理，但仍需要开发者注意以下几点：
+
+1. 避免循环引用：当两个对象互相持有引用时，就会产生循环引用，导致无法被回收。
+2. 使用弱引用和无主引用：在需要防止循环引用的地方使用 weak 或者 unowned 关键字。//"无主引用" 是一种不强制对象关系的引用。
+3. 使用 nil 解除引用：明确地将对象设置为 nil 可以立刻释放内存。
+4. 注意类的生命周期：确保类在生命周期结束时释放相关资源。
 
 ###### swift多线程
 

@@ -1110,11 +1110,178 @@ SPU组合算法是一种更加灵活的缓存算法，它结合了LRU和MRU算�
 答：get方法，应用于 等幂操作 的请求；会被缓存且是主动行为；可以收藏书签；可以保留历史记录，有缓存；获取数据；get的querystring（仅支持urlencode编码）；querystring 是url的一部分get、post都可以带上；get请求长度最多1024kb；请求参数会被完整保留在浏览器历史记录里；
 post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数据进行处理请求（例如提交表单或者上传文件）。数据被包含在请求体中。POST请求可能会导致新的资源的建立和/或已有资源的修改；提交表单、数据等，没有历史记录且安全；querystring 是url的一部分get、post都可以带上；post的参数是放在body（支持多种编码）；post对请求数据没有限制；post在浏览器中返回的时候，会有再次提交请求的提示；POST中的参数不会被保留；
 
-###### 12、如何切换到指定线程？
+###### 12、HTTP协议的状态码有哪些？分别代表什么含义？
+
+答：HTTP协议的状态码有以下几种：
+
+- 1xx：信息状态码，表示请求正在被处理。
+- 2xx：成功状态码，表示请求已经被成功处理。
+- 3xx：重定向状态码，表示需要进行进一步操作才能完成请求。
+- 4xx：客户端错误状态码，表示客户端请求出错。
+- 5xx：服务器错误状态码，表示服务器出现错误。
+
+###### 13、什么是Socket？Socket编程有哪些步骤？
+
+答：Socket是一种用于网络通信的API，它提供了一种流式的、双向的、可靠的、基于连接的通信方式。Socket编程的步骤一般包括以下几个：
+
+- 创建Socket：使用socket()函数创建一个新的Socket。
+- 绑定Socket：使用bind()函数将Socket与指定的地址和端口绑定。
+- 监听Socket：使用listen()函数监听该Socket的端口。
+- 接受连接：使用accept()函数接受来自客户端的连接请求。
+- 发送数据：使用send()函数向客户端发送数据。
+- 接收数据：使用recv()函数从客户端接收数据。
+- 关闭Socket：使用close()函数关闭Socket连接。
+  
+
+###### 14、Socket编程中，什么是TCP协议？UDP协议？它们有什么区别？
+
+答：TCP协议是一种可靠的、面向连接的协议，它提供了端到端的数据传输，可以确保数据的可靠性和顺序性。TCP协议需要先建立连接，然后才能进行数据传输。UDP协议是一种不可靠的、无连接的协议，它不提供可靠性和顺序性，数据传输过程中可能会发生数据丢失或者乱序。UDP协议可以直接发送数据，不需要建立连接。TCP协议适用于对可靠性和顺序性要求较高的场景，例如网页访问、文件传输等。UDP协议适用于对实时性要求较高、数据传输量较小的场景，例如语音、视频等。
+
+###### 15、在iOS开发中，如何使用Socket进行网络通信？
+
+答：在iOS开发中，可以使用CocoaAsyncSocket等第三方库来实现Socket通信。具体步骤包括：
+
+1. 导入第三方库：在项目中导入CocoaAsyncSocket等Socket库。
+2. 创建Socket对象：使用GCDAsyncSocket类创建一个新的Socket对象。
+3. 连接Socket：使用connectToHost()函数连接目标服务器。
+4. 发送数据：使用writeData()函数向服务器发送数据。
+5. 接收数据：使用readDataWithTimeout()函数从服务器接收数据。
+6. 断开连接：使用disconnect()函数断开Socket连接。
+
+例如，使用CocoaAsyncSocket库实现简单的Socket通信，可以按照以下步骤进行：
+
+1. 导入CocoaAsyncSocket库：
+
+```
+pod 'CocoaAsyncSocket'
+```
+
+1. 创建Socket对象：
+
+```
+GCDAsyncSocket *socket = [[GCDAsyncSocket alloc] initWithDelegate:self delegateQueue:dispatch_get_main_queue()];
+```
+
+1. 连接Socket：
+
+```
+NSError *error = nil;
+[socket connectToHost:@"192.168.0.1" onPort:8080 error:&error];
+if (error) {
+    NSLog(@"连接失败，错误信息：%@", error.localizedDescription);
+} else {
+    NSLog(@"连接成功");
+}
+```
+
+1. 发送数据：
+
+```
+NSString *dataStr = @"Hello, Server";
+NSData *data = [dataStr dataUsingEncoding:NSUTF8StringEncoding];
+[socket writeData:data withTimeout:-1 tag:0];
+```
+
+1. 接收数据：
+
+```
+[socket readDataWithTimeout:-1 tag:0];
+```
+
+1. 断开连接：
+
+```
+[socket disconnect];
+```
+
+以上仅为简单的Socket通信示例，实际使用中需要根据具体情况进行调整和扩展。
+
+###### 16、请列举一些提高网络性能的方法？
+
+答案：以下是一些提高网络性能的方法：
+
+- 使用HTTP缓存：在HTTP响应头中添加Cache-Control、Expires等缓存控制参数，可以使客户端对响应进行缓存，避免重复请求。
+- 合并HTTP请求：将多个HTTP请求合并成一个请求，可以减少HTTP连接建立和关闭的开销。
+- 图片懒加载：在列表等控件中，使用图片懒加载技术，只在需要时才加载图片，可以减少网络请求量和响应时间。
+- 后台数据拉取：在应用启动时，使用后台线程进行数据拉取和缓存，避免在用户需要时才进行网络请求。
+- 延迟加载：对于视图控制器等页面，可以进行延迟加载，只有在用户需要时才加载，可以提高启动速度。
+- 图片优化：尽可能使用WebP或PNG等图片格式，减少JPG格式的图片，可以提高图片加载速度。对于大型图片，可以进行图片压缩和缩放。
+- 视图层次优化：尽可能减少视图层次的深度，可以避免重绘和重排。
+- 数据缓存：对于常用数据可以进行本地缓存，避免重复请求，减少网络请求量。
+- 内存管理：注意内存泄漏和循环引用等内存问题，使用ARC自动内存管理机制，减少内存使用。
+
+###### 17、如何处理iOS应用中的网络请求并发问题？
+
+答案：以下是一些处理iOS应用中的网络请求并发问题的方法：
+
+- 使用NSURLConnection的异步API：可以使用NSURLConnection的异步API，将网络请求放到后台线程中，避免阻塞主线程。
+
+- 使用GCD（Grand Central Dispatch）：可以使用GCD将多个网络请求放到并发队列中，同时执行多个请求。
+
+- 使用NSOperationQueue：可以使用NSOperationQueue管理多个网络请求，对请求进行优先级排序，控制并发数等。
+
+- 基于AFNetworking对性能瓶颈和错误问题进行分析和解决，实现网络请求并发处理，可以按照以下步骤进行：
+
+  1. 创建一个AFHTTPSessionManager实例，设置请求超时时间和响应格式等。
+
+  ```
+  AFHTTPSessionManager *manager = [AFHTTPSessionManager manager];
+  manager.requestSerializer.timeoutInterval = 30;
+  manager.responseSerializer.acceptableContentTypes = [NSSet setWithObjects:@"application/json", @"text/json", @"text/javascript", @"text/html", nil];
+  ```
+
+  1. 创建多个NSURLSessionDataTask任务，同时执行多个请求。可以使用GCD的dispatch_group_t进行请求的并发处理，等待所有请求执行完毕后再进行处理。
+
+  ```
+  dispatch_group_t group = dispatch_group_create();
+  for (NSString *url in urls) {
+      dispatch_group_enter(group);
+      [manager GET:url parameters:nil progress:nil success:^(NSURLSessionDataTask *task, id responseObject) {
+          // 处理请求结果
+          dispatch_group_leave(group);
+      } failure:^(NSURLSessionDataTask *task, NSError *error) {
+          // 处理请求失败
+          dispatch_group_leave(group);
+      }];
+  }
+  dispatch_group_notify(group, dispatch_get_main_queue(), ^{
+      // 所有请求执行完毕后的处理
+  });
+  ```
+
+  1. 对请求结果进行处理。可以使用AFNetworking的responseObject等属性对请求结果进行处理，处理请求失败时的错误信息，记录日志等。
+
+  ```
+  [manager GET:url parameters:nil progress:nil success:^(NSURLSessionDataTask *task, id responseObject) {
+      // 处理请求结果
+      NSDictionary *result = (NSDictionary *)responseObject;
+      // ...
+  } failure:^(NSURLSessionDataTask *task, NSError *error) {
+      // 处理请求失败
+      NSLog(@"Error: %@", error.localizedDescription);
+  }];
+  ```
+
+  总结：基于AFNetworking对性能瓶颈和错误问题进行分析和解决，实现网络请求并发处理。
+
+###### 18、如何处理iOS应用中的网络请求错误？
+
+答案：以下是一些处理iOS应用中的网络请求错误的方法：
+
+- 检查网络连接：在进行网络请求之前，可以检查网络连接状态，如果网络不可用，可以提示用户进行网络连接。
+- 处理超时错误：当网络请求超时时，可以使用自定义超时时间，或者尝试重试请求，避免用户因网络问题无法完成请求。
+- 处理404错误：当网络请求返回404错误时，可以提示用户相应的错误信息，或者对请求进行重试。
+- 处理服务器错误：当网络请求返回500等服务器错误时，可以提示用户相应的错误信息，或者对请求进行重试。
+- 错误信息提示：对于错误信息，应该使用友好的方式进行提示，避免出现深奥的技术术语。可以使用UIAlertController等提示框架进行提示。
+- 日志记录：记录应用运行时的错误信息，可以方便快速定位错误和调试。
+- 异常处理：尽量使用try-catch块处理可能出现的异常，避免应用崩溃。
+- 兼容性处理：不同设备和iOS版本之间可能存在兼容性问题，应该进行测试和兼容性处理，确保应用可以正常运行。
+
+###### 19、如何切换到指定线程？
 
 答： performSelector:onThread:withObject:waitUntilDone: 
 
-###### 13、为什么说子线程不能更新UI呢？
+###### 20、为什么说子线程不能更新UI呢？
 
 ​	答：UI操作涉及到渲染访问视图的各种对象属性,异步操作会存在各种读写问题,虽可以通过加锁解决,但是这种另辟蹊径的方式会耗费大量的资源导致运行速度耗损；程序加载完景象就会进入main函数，此时UIApplication初始化主线程进行用户的事件，例如点击 手势操作等传递在主线程进行；所有的用户事件只能在主线程进行响应，渲染则需要30帧左右同步在屏幕上等待Sync垂直信号到来进行更新；非主线程异步操作的情况下不能保证实现同步更新机制。
  		两个异步线程同时做某些操作 可能发生不被预期的情况：
@@ -1126,7 +1293,7 @@ post方法，应用于 非等幂操作 的请求；POST 向指定资源提交数
 ​		规定只能在主线程访问UI，相当于是一种UI访问加的锁；
 ​		多线程更多的是算力，而非不断的进行UI的更新，保证处理UI的事件都在串行队列中进行。
 
-###### 14、AFNetworking原理
+###### 21、AFNetworking原理
 
 答：AFNetworking是一个 Objective-C 的 HTTP 网络库，它提供了强大的网络请求功能。AFNetworking 底层是基于 Apple 官方提供的 Foundation Networking 和 System Configuration 框架，并在此基础上进行了高层封装。
 AFNetworking 的核心是AFURLConnectionOperation 类，这个类封装了一个 NSURLConnection 对象，提供了简单易用的接口。它支持网络请求的各种方式，如 GET、POST、PUT、DELETE、HEAD等。

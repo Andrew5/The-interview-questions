@@ -58,6 +58,13 @@ atomic 修饰的属性是绝对安全的吗？为什么？
 
 答：`weak` 修饰的对象是弱引用，意味着它不会对所引用的对象的生命周期造成影响。如果所引用的对象没有被其他任何强引用所引用，那么在垃圾回收的时候它就会被回收。
 
+Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，Key是所指对象的地址，Value是weak指针的地址（这个地址的值是所指对象指针的地址，就是地址的地址）集合(当weak指针的数量小于等于4时,是数组, 超过时,会变成hash表)。
+
+weak 的实现原理可以概括以下三步：
+1、初始化时：runtime会调用objc_initWeak函数，初始化一个新的weak指针指向对象的地址。
+2、添加引用时：objc_initWeak函数会调用 objc_storeWeak() 函数， objc_storeWeak() 的作用是更新指针指向，创建对应的弱引用表或者加入已创建的弱引用表。
+3、释放时，调用clearDeallocating函数。clearDeallocating函数首先根据对象地址获取所有weak指针地址的数组，然后遍历这个数组把其中的数据设为nil，最后把这个entry从weak表中删除，清理对象的记录。
+
 这是通过在内存管理的基础数据结构中，如垃圾回收系统的内存表（side table）中维护一个引用计数器实现的。当一个对象的引用计数器为 0 时，它就会被回收。对于强引用，引用计数器加 1，而对于弱引用，引用计数器不会改变。
 
 weak
@@ -164,7 +171,7 @@ iOS 比如你进某个页面会从服务器拉个结果，这个结果是全局�
 
 "__block有什么作用__
 
-_在block内修改某局部变量需加block, MRC 环境下block在使用过程中不会对原来值进行copy，可以直接修改该变量 ，ARC环境下会对原值进行copy，内存地址也发生变化;
+在block内修改某局部变量需加block, MRC 环境下block在使用过程中不会对原来值进行copy，可以直接修改该变量 ，ARC环境下会对原值进行copy，内存地址也发生变化;
 
 block可以直接修改 全局和静态变量 ，不会copy该变量的值.
 不加__block, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
@@ -179,7 +186,57 @@ block 三种类型:全局 block，堆 block、栈 block。
 block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/strong/copy 等修饰词修饰。但是 block 在创建的时候内存默认分配在栈上，而不是堆上的。所以它的作用域仅限创建时候的作用域内，当你在该作用域外调用该 block 时，程序就会崩溃
 
 1. 将外部变量作为 __block 声明的变量在 block 中使用。这告诉编译器外部变量的值应该被复制到 block 中。
+
 2. 将外部变量作为弱引用使用，使用 weakSelf 等形式声明 weak 变量，以便 block 不保留对该对象的强引用。这确保了在 block 执行结束后，外部对象可以被正确回收。
+
+   __Block引起循环引用的问题如何解决__
+   `__block` 和 `__weak` 都是用于解决 Block 引起的循环引用问题。
+
+   1. 使用__weak修饰符
+
+      如果Block中要访问self或其他强引用对象时，可以使用____weak修饰符来避免循环引用问题。在Block内部声明一个__weak的self对象，并在Block内部使用这个self对象，而不是使用原来的强引用对象。
+
+   ```objective-c
+   __weak typeof(self) weakSelf = self;
+   [self doSomethingWithCompletion:^{
+       [weakSelf doSomethingElse];
+   }];
+   ```
+
+   1. 使用__block修饰符
+
+      如果Block要修改外部变量或对象，可以使用block修饰符来避免循环引用问题。在Block中声明一个block的变量，并在Block中使用这个__block变量，而不是使用原来的强引用对象。
+
+      ```objective-c
+      __block typeof(self) blockSelf = self;
+      [self doSomethingWithCompletion:^{
+          blockSelf.property = newValue;
+      }];
+      ```
+
+      `__block` 用于在 Block 内部修改在 Block 外部定义的变量，将变量变为可变的。这种情况下，Block 会持有这个变量，当 Block 被持有时，Block 和这个变量就会互相持有，造成循环引用。解决这个问题的方法是，在 Block 外部使用 `__weak` 修饰这个变量，这样 Block 持有的就是一个弱引用，不会造成循环引用。
+
+      ```objective-c
+      __weak typeof(self) weakSelf = self;
+      void (^block)(void) = ^{
+          __strong typeof(weakSelf) strongSelf = weakSelf;
+          if (strongSelf) {
+              strongSelf->count++;
+          }
+      };
+      ```
+
+      在这个例子中，使用 `__weak` 修饰了 `self`，在 Block 内部使用 `__strong` 修饰 `self`，来避免循环引用问题。
+
+      需要注意的是，`__weak` 修饰的对象可能被释放，所以在 Block 内部使用 `__strong` 修饰，并检查是否为 `nil`，避免使用已释放的对象。
+
+      使用`__weak`修饰符和`__block`修饰符可以避免循环引用的问题，但是需要注意使用场景和使用方式。
+
+      循环引用问题是因为在block内部使用了外部的对象，使得block与外部对象形成了相互强引用的关系，导致无法释放。在解决循环引用的问题时，可以使用 `__weak` 修饰符或者 `__block` 修饰符来避免这种相互强引用的情况。
+
+      使用 `__weak` 修饰符时，将需要使用的对象以弱引用的方式传递给block，block中使用时，由于是弱引用，因此不会增加对象的引用计数，避免了循环引用的问题。需要注意的是，在block内部使用弱引用对象时，需要先进行弱引用对象的强引用检查，以确保在使用过程中对象不会被提前释放。
+
+      使用 `__block` 修饰符时，可以将需要使用的对象定义为 `__block` 类型，block中使用时，由于是在同一作用域内，因此不会造成循环引用的问题。需要注意的是，在block内部修改 `__block` 类型对象的值时，要避免出现循环引用的情况。
 
 ###### 5: 谈谈你对事件的传递链和响应链的理解
 
@@ -298,6 +355,23 @@ NSDictionary 是一种无序集合，它可以存储多个键值对。在使用 
 ###### 15: RunLoop 的作用是什么？它的内部工作机制了解么？
 
 答：https://mp.weixin.qq.com/s/CTFWeNg6sZueKz8UkZEe2Q
+Common Modes中添加自定义mode  如何实现？在 iOS 中，有一些常用的 Run Loop Mode，比如 `NSDefaultRunLoopMode`、`UITrackingRunLoopMode`、`NSRunLoopCommonModes` 等。你可以将你自己定义的 mode 添加到 `NSRunLoopCommonModes` 中，这样就可以让你自己定义的 mode 在 `NSRunLoopCommonModes` 中默认也是包含的。
+
+你可以通过 `CFRunLoopAddCommonMode(CFRunLoopRef rl, CFStringRef mode)` 函数将一个 mode 添加到 `NSRunLoopCommonModes` 中。
+
+举例来说，如果你有一个自定义的 mode 叫做 `MyCustomMode`，你可以将其添加到 `NSRunLoopCommonModes` 中，代码如下：
+
+```
+CFRunLoopRef runLoop = CFRunLoopGetCurrent();
+CFStringRef mode = CFSTR("MyCustomMode");
+CFRunLoopAddCommonMode(runLoop, mode);
+```
+
+这样，在 `NSRunLoopCommonModes` 中就默认包含了 `MyCustomMode`。你就可以在其他地方调用定时器等需要用到 Run Loop 的 API，并将 mode 参数设置为 `NSRunLoopCommonModes` 或 `MyCustomMode`，就可以让你的代码自动运行在 `MyCustomMode` 中，从而达到你想要的效果。
+
+使得自己创建的线程可以通过自定义的 Mode，去监听和处理特定的事件。
+
+举个例子，假设我们有一个在线程中执行的任务，需要周期性地向服务器请求数据，并在拿到数据后进行相应处理。我们可以使用 NSRunLoop 来保证该任务不会过度消耗 CPU 资源，但是默认的 NSRunLoop 只能在 Common Mode 中执行，无法进行 Mode 的切换。这样可能会造成我们的任务被卡在 RunLoop 中，无法及时地处理其他任务。因此，我们可以创建一个自定义的 Mode，让该任务在该 Mode 中运行，这样就可以防止任务卡住线程，而且还能在需要的时候及时处理其他任务。
 
 ###### 16: ios 中少用NSLog
 
@@ -528,7 +602,7 @@ bookName的声明中指定属性nonatomic，表示为非线程安全的，set方
 
 ###### 30、iOS内存管理方式
 
-retain：持有，对原对象引用计数加1，强引用。ARC中使用strong。
+retain：持有，对原对象引用计数加1，强引用。ARC中使用strong。(alloc会调用c函数的calloc，此时并没有设置引用计数器为1.retain是怎么将对象的引用计数器+1？经过2次hash表的查找，找到size_t加1实现的。release的查找和retain一样，后面是做-1操作。)
 copy：拷贝，复制一个对象并创建strong关联，引用计数为1 ，原来对象计数不变。
 assign：赋值，不涉及引用计数的变化，弱引用。ARC中对象不使用assign,但原始类型(BOOL、int、float)仍然可以使用,assign修饰的对象，当对象释放之后，即引用计数为0时，指针变量并不会同时置为nil，全局变量就是变为野指针，不知道指向哪，再向该对象发消息，非常容易崩溃。
 因此，当属性类型是对象时，不要使用assign，会带来一些风险。
@@ -547,6 +621,12 @@ strong：持有（ARC），等同于retain。
 图像缓存：在 iOS 开发中，图像是一种常见的内存占用者。为了避免内存暴涨，可以使用图像缓存技术，例如 NSCache 和 SDWebImage。
 注意循环引用：循环引用是一常见的内存泄漏原因。为了避免循环引用，需要正确使用 weak 和 unowned 关键字，在必要的时候手动管理内存。
 定期检查内存使用情况：通过 Xcode 的 Instrument 工具可以定期检查应用的内存使用情况，快速发现内存泄漏和暴涨的问题，并及时解决。
+对象可以直接释放的五个判断条件：
+1、当前对象不是非指针类型的isa指针
+2、无弱引用
+3、无关联对象
+4、无C++ 没有采用ARC
+5、没有使用side table
 
 Tagged Pointer（小对象）
 Tagged Pointer 专门用来存储小的对象，例如 NSNumber 和 NSDate
@@ -598,6 +678,20 @@ struct {
 如果该位置存在对应的引用计数，则对其进行操作，如果没有对应的引用计数，则创建一个对应的 size_t 对象，其实就是一个 uint 类型的无符号整型
 
 弱引用表也是一张哈希表的结构，其内部包含了每个对象对应的弱引用表 weak_entry_t，而 weak_entry_t 是一个结构体数组，其中包含的则是每一个对象弱引用的对象所对应的弱引用指针。
+
+###### 31、Blocks和Delegates区别
+
+答：Blocks和Delegates都是在iOS开发中常用的机制来实现对象之间的通信和处理回调。
+
+Delegate是一种设计模式，它允许一个对象将特定的任务委托给另一个对象来处理。它通常使用协议(Protocol)来定义接口，其中包含了一些方法，然后实现协议的对象可以通过代理(Delegate)对象调用这些方法。Delegate常用来处理事件回调，例如UITableView的delegate，可以响应cell的点击、滑动等事件。
+
+Block是一个用于封装一个代码块的C语言扩展，它也被称为闭包(Closure)。它可以接受参数并返回值，它还能够捕获外部变量的值，并把它们作为内部代码块的变量使用。在iOS中，Block通常用于异步回调，例如网络请求，通过Block回调返回请求结果。
+
+Delegate和Block都可以用于对象之间的通信和处理回调，它们的选择取决于具体情况。Delegate是面向协议的，具有更好的类型安全和可读性，但在代码中通常需要添加较多的协议和代理方法。Block在代码中使用更为简洁，可以减少代码量和类的数量，但是需要注意Block可能引起循环引用的问题。
+
+###### 计时器会造成内存泄漏吗 (单纯的计时器)
+
+答：使用 `NSTimer` 创建的计时器，如果没有被正确的销毁，是有可能会导致内存泄漏的。原因在于，`NSTimer` 对目标对象是强引用的，如果在销毁前没有将 `NSTimer` 对象进行 invalidate，那么目标对象将无法释放，从而导致内存泄漏。解决这个问题的常见做法是，在持有 `NSTimer` 的对象销毁时，手动调用 `invalidate` 方法。同时，建议在使用 `NSTimer` 时，将 `NSTimer` 以弱引用的方式持有，例如使用 `__weak` 关键字来修饰变量，避免出现循环引用的问题。
 
 ###### 线程锁
 
@@ -1138,7 +1232,38 @@ AFNetworking 框架的优点：
 
 ###### 6: 有序数组合并
 
-答：
+答：该方法接受两个有序数组，将它们合并为一个有序数组。如果有一个数组为空，则直接返回另一个数组。否则，将两个数组按照从小到大的顺序进行合并。其中，需要注意数组越界的情况。生成的有序数组将会按照从小到大的顺序排列。
+
+```objective-c
+- (NSArray *)mergeArray:(NSArray *)array1 withArray:(NSArray *)array2 {
+    if (array1.count == 0) {
+        return array2;
+    }
+    if (array2.count == 0) {
+        return array1;
+    }
+    NSMutableArray *resultArray = [NSMutableArray array];
+    NSInteger i = 0, j = 0;
+    while (i < array1.count && j < array2.count) {
+        if ([array1[i] integerValue] < [array2[j] integerValue]) {
+            [resultArray addObject:array1[i]];
+            i++;
+        } else {
+            [resultArray addObject:array2[j]];
+            j++;
+        }
+    }
+    if (i < array1.count) {
+        [resultArray addObjectsFromArray:[array1 subarrayWithRange:NSMakeRange(i, array1.count - i)]];
+    }
+    if (j < array2.count) {
+        [resultArray addObjectsFromArray:[array2 subarrayWithRange:NSMakeRange(j, array2.count - j)]];
+    }
+    return resultArray;
+}
+```
+
+
 
 ###### 7: 查找第一个只出现一次的字符（Hash查找）
 
@@ -1944,6 +2069,17 @@ NSLog(@"%d",yy);//10
 
 - 我参与过的项目中，最能证明我能力的事情之一是我在一个应用中实现了一个性能瓶颈的优化。这个应用是一款社交应用，在某些情况下，它会变得非常缓慢。我使用Instruments工具来分析问题，发现是一个高频率的数据库操作导致的。我使用CoreData的子线程上下文来优化数据库操作，并使用GCD来管理线程，这样大大提高了应用的性能。
 - 另外一件事是我在一个项目中引入了MVVM架构，使得团队的开发效率大大提高。这个项目是一款金融应用，在之前的MVC架构下，我们发现代码难以维护和扩展。我提出使用MVVM架构来
+
+  `otool`是macOS系统自带的命令行工具，主要用于查看可执行文件、动态库、静态库的信息，包括段信息、符号信息、反汇编等。
+
+  ```shell
+  otool -tV <file path>//查看可执行文件或动态库的符号表
+  otool -tv <file path>//反汇编可执行文件或动态库
+  otool -L <file path>//查看静态库的库信息
+  otool -L <file path>//查看可执行文件或动态库依赖的动态库
+  otool -Lr <file path>//查看动态库的动态链接信息
+   man otool 查看更详细的用法
+  ```
 
 #### flutter 事件循环
 
@@ -3324,3 +3460,220 @@ enum List{
 **问题6- Swift嵌套函数在哪存的什么地方** 
 答：Swift中的嵌套函数是存储在调用它的外部函数中的. 它们只能在外部函数的内部访问,并不能在外部函数外部访问.(嵌套函数只能在它所嵌套在的外部函数中被调用和使用,不能在外部函数外部被直接调用或使用. 外部函数必须先被调用才能使嵌套函数可用. 例如,如果有一个名为 outerFunction() 的外部函数和一个名为 nestedFunction() 的嵌套函数,那么在 outerFunction() 外部调用 nestedFunction() 是不允许的,但是在 outerFunction() 内部调用 nestedFunction() 是允许的。)
 
+##### 安卓
+
+###### 请解释Android中的Activity生命周期？
+
+答：Activity生命周期描述了一个Activity从创建到销毁的整个过程。常见的生命周期方法包括onCreate()、onStart()、onResume()、onPause()、onStop()、onRestart()和onDestroy()。每个生命周期方法都代表了Activity在特定状态下的行为，如onCreate()在Activity第一次创建时被调用，onResume()在Activity从暂停状态回到前台时被调用。
+
+###### 请解释Android中的Intent？
+
+答：Intent是Android中的一种消息传递机制，用于在不同的组件之间传递信息。可以通过Intent启动一个Activity、Service或BroadcastReceiver，并可以在这些组件之间传递数据。Intent可以在Manifest文件中声明或者在代码中动态创建。Intent包含了Action、Category、Data和Extras等信息，用于描述需要执行的操作以及传递的数据。
+
+###### 请解释Android中的Binder机制？
+
+答：Binder是Android中的一种跨进程通信机制，可以让不同进程之间的组件相互通信。Binder的实现依赖于Linux内核中的Inter-Process Communication(IPC)机制。在Android中，每个进程都有一个Binder驱动，用于管理该进程内的Binder对象。Binder对象是跨进程通信的基本单元，通过Binder对象可以实现进程间的函数调用和数据传输。
+
+###### 请解释Android中的MVP设计模式？
+
+答：MVP（Model-View-Presenter）是一种Android开发中常用的设计模式，用于分离应用程序的表示层和业务逻辑层。MVP将一个应用程序分为三个部分：View、Model和Presenter。View负责展示数据和接收用户的操作，Model负责数据的存储和管理，Presenter负责处理业务逻辑和协调View和Model之间的交互。通过MVP设计模式，可以实现代码的复用和分离，提高代码的可维护性和可扩展性。
+
+###### 请解释Android中的Handler机制？
+
+答：Handler是Android中的一种线程间通信机制，可以用于在不同的线程之间传递消息。在Android中，UI操作必须在主线程中执行，而耗时的操作则应该在子线程中执行，通过Handler机制可以在子线程中执行耗时的操作，并将执行结果传递给主线程进行UI更新。Handler通常与Looper和MessageQueue一起使用，Looper负责循环处理消息队列中的消息，而MessageQueue则用于存储消息。可以通过Handler的post()方法或sendMessage()方法向消息队列中发送消息，从而实现线程间的通信。
+
+###### 什么是ANR，如何避免ANR？
+
+ANR（Application Not Responding）即应用程序无响应，指的是当应用程序在主线程上执行太长时间或者出现了阻塞时，系统会弹出一个对话框提示用户等待或关闭应用程序。避免ANR的方法包括：
+
+- 尽量避免在主线程上执行耗时操作，如网络请求、大量计算等操作，应该使用线程池或者异步任务来处理。
+- 尽量避免在主线程上进行IO操作，应该使用异步IO操作。
+- 使用合适的数据结构和算法，避免出现死循环、死锁等情况。
+- 对于较耗时的操作，可以在子线程中执行并使用Handler机制更新UI。
+
+###### 什么是Activity生命周期，包括哪些方法？
+
+Activity生命周期指的是Activity在从创建到销毁的整个过程中所经历的状态变化，包括以下方法：
+
+- onCreate()：Activity被创建时调用。
+- onStart()：Activity变为可见时调用。
+- onResume()：Activity获得焦点时调用。
+- onPause()：Activity失去焦点时调用。
+- onStop()：Activity变为不可见时调用。
+- onDestroy()：Activity被销毁时调用。
+- onRestart()：Activity从停止状态重新启动时调用。
+
+###### 什么是Fragment，有哪些用途？
+
+Fragment是Android应用程序中UI组件的一种，可以看作是Activity中的子模块，它有自己的布局、生命周期和逻辑代码。Fragment的主要用途包括：
+
+- 在不同的屏幕布局中共享代码和布局。
+- 在Activity中动态添加、删除和替换UI组件。
+- 可以作为一个模块化的组件，提供独立的UI和逻辑功能。
+- 可以通过FragmentManager来管理Fragment的生命周期和状态。
+
+###### 什么是Service，有哪些类型？
+
+ Service是Android应用程序中一种用于在后台执行长时间运行任务的组件，它不与用户界面交互，可以在Activity销毁时继续运行。Service有三种类型：
+
+- 前台服务（Foreground Service）：用户可以看到正在运行的服务，通常用于需要长时间运行的任务，如下载、音乐播放等。
+- 后台服务（Background Service）：不需要与用户交互，通常用于执行短时间的任务，如发送邮件、推送通知等。
+- 绑定服务（Bound Service）：可以与其他组件绑定，一般用于提供某种功能的服务，如音乐播放器、天气应用等。
+
+###### 什么是依赖注入(Dependency Injection)？它有什么好处？
+
+答：依赖注入是一种设计模式，它可以将对象之间的依赖关系交由一个第三方管理，而不是在对象内部直接实例化依赖对象。好处包括：
+
+- 可以简化代码结构，减少代码耦合；
+- 可以方便地实现模块化设计；
+- 可以支持更灵活的测试，因为依赖对象可以通过桩对象进行模拟。
+
+###### Android中的四大组件分别是什么？它们有什么作用？
+
+答：四大组件分别是Activity、Service、BroadcastReceiver和ContentProvider。它们的作用分别是：
+
+- Activity：提供用户界面，接收用户输入事件并进行处理。
+- Service：在后台执行长时间运行的任务，不需要用户交互界面。
+- BroadcastReceiver：监听系统广播事件，进行相应的处理。
+- ContentProvider：为应用程序提供数据访问接口，可以将应用程序中的数据共享给其他应用程序使用。
+
+###### 什么是异步任务(AsyncTask)？它有什么作用？
+
+答：异步任务是一种Android中的多线程实现方式，它可以在UI线程之外进行后台任务的执行，并将执行结果返回给UI线程。它的作用是避免在UI线程中进行耗时操作，保证UI界面的流畅性。
+
+###### 如何实现Android中的网络访问？
+
+答：Android中的网络访问可以使用HttpURLConnection或HttpClient类实现。在Android 6.0及以上版本中，需要使用网络权限时还需要动态请求权限。
+
+###### 如何实现Android中的数据存储？
+
+答：Android中的数据存储方式有多种，包括SharedPreferences、SQLite、文件存储、ContentProvider等。选择存储方式时需要考虑数据类型、数据量、数据安全等因素。
+
+###### Android中的线程和进程有什么区别？
+
+答：线程是进程中的一条执行路径，可以共享进程的内存空间。线程之间的切换比进程之间的切换更快捷。进程则是系统资源分配的基本单位，每个进程都有独立的内存空间。进程之间的切换比线程之间的切换更消耗资源。
+
+###### 如何在Android中进行数据的加密和解密？
+
+答：Android中可以使用对称加密算法、非对称加密算法或者哈希算法进行数据的加密和解密。常见的加密算法包括AES、DES、RSA等。在使用加密算法时需要注意数据安全性和性能消耗。
+
+###### 自定义view 的测量怎么测量几种模式？
+
+在自定义View中，我们需要在onMeasure()方法中测量View的宽高。而View的测量模式有三种：UNSPECIFIED、EXACTLY和AT_MOST。下面分别介绍这三种模式：
+
+1. UNSPECIFIED（未指定模式） 在父布局没有对子View的宽高限制时，子View的测量模式就是UNSPECIFIED，此时子View的尺寸可以随意设置。例如，在ScrollView中添加一个TextView时，TextView的宽度没有被限制，因此宽度模式为UNSPECIFIED。
+2. EXACTLY（精确模式） 当View的宽高被设置为具体值，或者MATCH_PARENT时，View的宽高模式就是EXACTLY，此时View的尺寸应该与这个具体值一致，或者是与父布局的剩余空间一致（即MATCH_PARENT）。例如，当设置View的宽高为200dp时，View的宽高模式就是EXACTLY。
+3. AT_MOST（最大值模式） 当View的宽高设置为WRAP_CONTENT时，View的宽高模式就是AT_MOST，此时View的尺寸应该尽可能小，但不得超过父布局给出的最大值。例如，在ListView中添加一个TextView时，TextView的高度可以随内容自适应，但不能超过ListView的最大高度，因此高度模式为AT_MOST。
+
+在自定义View中，可以通过以下代码获取View的测量模式：
+
+```
+int widthMode = MeasureSpec.getMode(widthMeasureSpec);
+int heightMode = MeasureSpec.getMode(heightMeasureSpec);
+```
+
+其中，widthMeasureSpec和heightMeasureSpec分别是View的宽度和高度的测量规格，我们可以通过MeasureSpec.getMode()方法获取测量模式。如果我们需要在onMeasure()方法中计算View的尺寸，可以通过以下代码获取View的测量宽高：
+
+```
+int widthSize = MeasureSpec.getSize(widthMeasureSpec);
+int heightSize = MeasureSpec.getSize(heightMeasureSpec);
+```
+
+###### viewmodel粘性事件怎么处理
+
+在使用ViewModel时，由于ViewModel的生命周期比Activity或Fragment更长，因此在旋转屏幕等情况下，ViewModel可能会继续存活。这就导致了在旋转屏幕等操作后，之前的LiveData事件会被重新触发，导致数据的重复更新。
+
+为了解决这个问题，可以在ViewModel中使用粘性事件。所谓的粘性事件，是指在发送事件时，不仅发送当前的事件，同时也将最新的事件缓存起来，以便在之后观察者注册时再次触发。
+
+```
+public class Event<T> {
+    private T content;
+    private boolean hasBeenHandled = false;
+
+    public Event(T content) {
+        this.content = content;
+    }
+
+    public T getContentIfNotHandled() {
+        if (hasBeenHandled) {
+            return null;
+        } else {
+            hasBeenHandled = true;
+            return content;
+        }
+    }
+
+    public T peekContent() {
+        return content;
+    }
+}
+```
+
+在ViewModel中，可以使用MutableLiveData来发送粘性事件。例如：
+
+```
+public class MyViewModel extends ViewModel {
+    private MutableLiveData<Event<String>> mEvent = new MutableLiveData<>();
+
+    public LiveData<Event<String>> getEvent() {
+        return mEvent;
+    }
+
+    public void sendEvent(String content) {
+        mEvent.setValue(new Event<>(content));
+    }
+}
+```
+
+在观察者中，可以通过getContentIfNotHandled()方法来获取当前的事件，同时也将事件标记为已处理，以避免在旋转屏幕等操作时重复触发事件。例如：
+
+```
+myViewModel.getEvent().observe(this, event -> {
+    String content = event.getContentIfNotHandled();
+    if (content != null) {
+        // 处理事件
+    }
+});
+```
+
+需要注意的是，getContentIfNotHandled()方法只会返回一次未处理的事件，之后再次调用时将返回null。如果需要获取当前的事件，可以使用peekContent()方法。同时，在某些情况下，可能需要清除缓存的事件，以便再次触发事件。此时可以在ViewModel中添加一个清除事件的方法，例如：
+
+```
+public void clearEvent() {
+    mEvent.setValue(null);
+}
+```
+
+###### 协程是什么？它与线程有什么区别？
+
+协程是一种轻量级的线程。与线程不同，协程不是由操作系统调度的，而是由程序员显式地调度的。协程通过挂起和恢复来实现协作式多任务。协程与线程相比，更加高效和可控。
+
+###### 协程的优点是什么？
+
+协程有以下几个优点：
+
+- 轻量级：协程比线程更加轻量级，协程的切换代价比线程更小。
+- 可控性：协程由程序员显式地调度，程序员可以控制协程的切换时间，从而优化程序的性能。
+- 更加简洁：协程的代码更加简洁易懂，协程的代码结构更加清晰。
+- 代码风格：协程可以用类似同步代码的方式来写异步代码，代码风格更加优美。
+
+###### Kotlin协程的基本概念是什么？
+
+Kotlin协程的基本概念包括以下几点：
+
+- 协程作用域：协程作用域是一个概念上的范围，在该范围内创建的协程可以自动取消。协程作用域可以通过CoroutineScope来实现。
+- 挂起：挂起是指协程暂停执行，等待某个操作完成后再恢复执行。协程的挂起可以通过使用suspend关键字来实现。
+- 异步：异步是指协程可以在后台执行操作，同时不会阻塞UI线程。异步可以通过使用async关键字来实现。
+- 协程调度器：协程调度器是用来控制协程在哪个线程上执行的。协程调度器可以通过Dispatchers类来实现。
+
+###### Kotlin协程的异常处理机制是什么？
+
+Kotlin协程的异常处理机制是基于CoroutineExceptionHandler的。当协程中出现未捕获的异常时，会自动触发CoroutineExceptionHandler来处理异常。CoroutineExceptionHandler可以通过GlobalScope来实现。
+
+###### Kotlin协程的取消机制是什么？
+
+Kotlin协程的取消机制是基于协程作用域的。当协程作用域被取消时，协程会自动取消。协程作用域可以通过CoroutineScope来实现。
+
+###### Kotlin协程的Channel是什么？
+
+Kotlin协程的Channel是一种类似于队列的数据结构，可以在协程之间传递数据。Channel提供了一种安全、可控的方式来进行协程之间的通信。Channel可以通过kotlinx.coroutines.channels包来实现。

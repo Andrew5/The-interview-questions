@@ -163,18 +163,18 @@ weak表示指向但不拥有该对象。其修饰的对象引用计数不会增�
 
 ###### 4: block 为什么能够捕获外界变量？ block  做了什么事？ 
 
-答："block内部也有个isa指针。block是封装了函数调用以及函数调用环境的OC对象。block内部有isa指针，以及包含指向方法实现的地址，对于局部自动变量，是值传递，对于局部静态变量，是指针传递，全局变量直接访问，__block可以用于解决block内部无法修改auto变量值的问题，编译器会将__block变量包装成一个对象。
-"__如何防止block里的对象被提前释放了__
+答："block内部也有个isa指针。block是封装了函数调用以及函数调用环境的OC对象。block内部有isa指针，以及包含指向方法实现的地址，对于局部自动变量，是值传递，对于局部静态变量，是指针传递，全局变量直接访问，`__block`可以用于解决block内部无法修改auto变量值的问题，编译器会将`__block`变量包装成一个对象。
+__如何防止block里的对象被提前释放了__
 在block内部使用外部对象时，可以使用block修饰符声明变量，这样可以将变量的生命周期与block的生命周期绑定。这样在block内部使用的变量就不会被提前释放。另外，可以将外部对象的引用添加到一个strong变量中，然后在block中使用strong变量，这样可以保证引用的对象不会被提前释放。（vc你销毁不了 vc只能在主线程同步销毁 arc下托管给系统处理的 mrc下你异步销毁唯一结果就是崩溃；vc走不走dealloc 取决于他所有持有的对象有没有走dealloc，找自己持有的所有非系统对象是不是没走deadlock 系统的不会有问题 就看你自定义对象就行
 iOS 比如你进某个页面会从服务器拉个结果，这个结果是全局都在用的，也就是说你进去一次就会刷新一次这个结果，这个结果在其他页面也会用到，假设你进去这个vc触发了拉取的动作 但你很快又退出了，那这个请求的动作怎么办？他回来的结果给谁处理？(关于block引用问题)
 这个问题可以通过在请求结束时，判断当前页面是否仍然在显示，如果不是，可以不进行处理。或者，在请求时，将需要处理请求的对象，比如说其他的VC，设置为block的弱引用，在请求结束后，只有在该VC仍然存在时才进行处理。）
 
-"__block有什么作用__
+`__block`有什么作用
 
 在block内修改某局部变量需加block, MRC 环境下block在使用过程中不会对原来值进行copy，可以直接修改该变量 ，ARC环境下会对原值进行copy，内存地址也发生变化;
 
 block可以直接修改 全局和静态变量 ，不会copy该变量的值.
-不加__block, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
+不加`__block`, MRC 和 ARC block中都是对（原来指针的copy），也就是有两个不同的指针，指向同一个对象。_
 _使用_block ,MRC环境block中不会对原来的指针进行copy，所以可以更改属性，也可以更改对象本身 ；而ARC环境则是对原对象的copy，内存地址也发生变化
 block所起到的作用就是只要观察到该变量被 block 所持有,就将“外部变量”在栈中的内存地址放到了堆中。进而在block内部也可以修改外部变量的值,
 一、block 的三种类型
@@ -194,7 +194,7 @@ block 本质上是一个OC对象，内部有个 isa 指针，可以用 retain/st
 
    1. 使用__weak修饰符
 
-      如果Block中要访问self或其他强引用对象时，可以使用____weak修饰符来避免循环引用问题。在Block内部声明一个__weak的self对象，并在Block内部使用这个self对象，而不是使用原来的强引用对象。
+      如果Block中要访问self或其他强引用对象时，可以使用`__weak`修饰符来避免循环引用问题。在Block内部声明一个`__weak`的self对象，并在Block内部使用这个self对象，而不是使用原来的强引用对象。
 
    ```objective-c
    __weak typeof(self) weakSelf = self;
@@ -264,6 +264,7 @@ UIApplicationHandleEventQueue() 会把 IOHIDEvent 处理并包装成 UIEvent 进
 ###### 6: 谈谈 KVC 以及 KVO 的理解
 
 答：就是为对象添加一个观察者“Observer”，当其属性值发生改变时，就会调用"observeValueForKeyPath:"方法，为我们提供一个“对象值改变了！”的时机进行一些操作。Key-Value Obersver，即键值观察。它是观察者模式的一种衍生。基本思想是，对目标对象的某属性添加观察，当该属性发生变化时，会自动的通知观察者。这里所谓的通知是触发观察者对象实现的KVO的接口方法。 
+		当我们在使用 KVO 监听某个对象的属性时，系统会在运行时生成一个与之对应的观察者对象，并且会自动将这个观察者对象添加到对象的观察者列表中。这个观察者对象会监听指定属性的变化，并在属性发生变化时通知观察者对象。
 		KVO是解决model和view同步的好法子。另外，KVO的优点是当被观察的属性值改变时是会自动发送通知的，这比通知中心需要post通知来说，简单了许多。
 		KVO:当指定的对象的属性被修改了，允许对象接收到通知的机制。
 利用RuntimeAPI动态生成一个子类，并且让instance对象的isa指向这个全新的子类，当修改instance对象的属性时，会调用Foundation的，_NSSetXXXValueAndNotify函数，此函数的内部实现为 调用willChangeValueForKey，调用父类(原来)的setter实现，调用didChangeValueForKey:，
@@ -276,6 +277,7 @@ Apple使用了isa混写（isa-swizzling）来实现KVO。
 		当改变发生后，didChangeValueForkey:被调用，通知系统该keyPath的属性值已经变更；
 之后，observeValueForKey:ofObject:context:也会被调用。且重写观察属性的setter方法这种继承方式的注入是在运行时而不是编译时实现的。
 		KVO方法列表中包含：setValueclass-deallocisKVOA-self.p isa addobserve 指向NSKVONotifying_A 动态生成这个子类self.p isa removeobserve 指向A 类临时帮我们实现KVO 默默付出 依靠setValue方法 成员变量并没有set方法 watchpoint set variable self->p>name 系统set方法内部调用willChangeValueForkey、didChangeValueForkey实现KVO监听成员变量不会执行set方法didChangeValueForkey 调用nitifyforkey了
+		如果我们需要手动关闭 KVO 监听，可以通过调用 `removeObserver:forKeyPath:` 方法来实现。这个方法的作用是从对象的观察者列表中移除指定的观察者对象，以停止监听对象属性的变化
 		KVC的实现原理
 		答：俗称“键值编码”，通过一个key来访问某个属性；一种间接访问对象属性的机制，甚至可以通过KVC来访问对象的私有属性！修改textField的placeholder也是通过KVC修改的，KVC对多种数据类型的支持，KVC在某种程度上提供了替代存取方法（访问器方法）的方案，不过存取方法终究是个好东西，以至于只要有可能，KVC也尽可能先尝试使用存取方法访问属性。
 当使用KVC访问属性时，它内部其实做了很多事：
@@ -355,6 +357,17 @@ NSDictionary 是一种无序集合，它可以存储多个键值对。在使用 
 ###### 15: RunLoop 的作用是什么？它的内部工作机制了解么？
 
 答：https://mp.weixin.qq.com/s/CTFWeNg6sZueKz8UkZEe2Q
+
+source -- CFRunLoopSourceRef
+
+Source0 :只包含了一个回调(函数指针)，它并不能主动触发事件。使用时，你需要先 调用 CFRunLoopSourceSignal(source)，将这个 Source 标记为待处理，然后手动调用 CFRunLoopWakeUp(runloop) 来唤醒 RunLoop，让其处理这个事件。
+
+Source1 :基于 mach_Port 的，来自系统内核或者其他进程或线程的事件，可以主动唤 醒休眠中的RunLoop(iOS里进程间通信开发过程中我们一般不主动使用)。mach_port大 家就理解成进程间相互发送消息的一种机制就好。
+
+简单举个例子:一个APP在前台静止着，此时，用户用手指点击了一下APP界面，那么过程就 是下面这样的:
+我们触摸屏幕，先摸到硬件(屏幕)，屏幕表面的事件会先包装成Event，Event先告诉source (mach_port)，source1唤醒RunLoop，然后将事件Event分发给source0，然后由source0来处 理。
+如果没有事件，也没有timer，则runloop就会睡眠，如果有，则runloop就会被唤醒，然后跑一 圈。
+
 Common Modes中添加自定义mode  如何实现？在 iOS 中，有一些常用的 Run Loop Mode，比如 `NSDefaultRunLoopMode`、`UITrackingRunLoopMode`、`NSRunLoopCommonModes` 等。你可以将你自己定义的 mode 添加到 `NSRunLoopCommonModes` 中，这样就可以让你自己定义的 mode 在 `NSRunLoopCommonModes` 中默认也是包含的。
 
 你可以通过 `CFRunLoopAddCommonMode(CFRunLoopRef rl, CFStringRef mode)` 函数将一个 mode 添加到 `NSRunLoopCommonModes` 中。
@@ -371,7 +384,15 @@ CFRunLoopAddCommonMode(runLoop, mode);
 
 使得自己创建的线程可以通过自定义的 Mode，去监听和处理特定的事件。
 
-举个例子，假设我们有一个在线程中执行的任务，需要周期性地向服务器请求数据，并在拿到数据后进行相应处理。我们可以使用 NSRunLoop 来保证该任务不会过度消耗 CPU 资源，但是默认的 NSRunLoop 只能在 Common Mode 中执行，无法进行 Mode 的切换。这样可能会造成我们的任务被卡在 RunLoop 中，无法及时地处理其他任务。因此，我们可以创建一个自定义的 Mode，让该任务在该 Mode 中运行，这样就可以防止任务卡住线程，而且还能在需要的时候及时处理其他任务。
+举个例子，假设我们有一个在线程中执行的任务，需要周期性地向服务器请求数据，并在拿到数据后进行相应处理。我们可以使用 NSRunLoop 来保证该任务不会过度消耗 CPU 资源，但是默认的 NSRunLoop 只能在 Common Mode 中执行，无法进行 Mode 的切换。这样可能会造成我们的任务被卡在 RunLoop 中，无法及时地处理其他任务。因此，我们可以创建一个自定义的 Mode，让该任务在该 Mode 中运行，这样就可以防止任务卡住线程，而且还能在需要的时候及时处理其他任务。CFRunLoopTimer 是 Core Foundation 框架中的一个定时器对象，它主要用于在 RunLoop 的特定模式下触发回调函数。CFRunLoopTimer 执行的任务是根据 RunLoop 的运行情况来控制的，可以理解为它是 RunLoop 内部机制的一部分。
+
+CFRunLoopTimer 主要的作用是提供一个高精度的计时器，在指定的时间间隔后执行一个回调函数，执行的时机可以在 RunLoop 中的特定模式下进行设置。具体来说，CFRunLoopTimer 在 RunLoop 的特定模式下会不断触发，并在每次触发时执行指定的回调函数。
+
+CFRunLoopTimer 的主要作用包括：
+
+1. 提供一个高精度的计时器，在指定的时间间隔后执行回调函数。
+2. 与 RunLoop 机制结合使用，可以控制定时器在指定的 RunLoop 模式下触发回调函数。
+3. 可以使用 CFRunLoopTimerRef 对象进行控制，包括启动、停止、暂停和重新启动等操作。
 
 ###### 16: ios 中少用NSLog
 
@@ -1436,6 +1457,35 @@ AFNetworking 框架的优点：
 
 答：
 
+```objective-c
+- (NSString *)findFirstNonRepeatedChar:(NSString *)str {
+    // 创建一个空的字典，用来存储每个字符出现的次数。
+    NSMutableDictionary *charCount = [NSMutableDictionary dictionary];
+    NSInteger length = [str length];
+    for (NSInteger i = 0; i < length; i++) {
+        unichar currentChar = [str characterAtIndex:i];
+        NSNumber *charValue = [NSNumber numberWithUnsignedShort:currentChar];
+        NSNumber *count = [charCount objectForKey:charValue];
+        // 遍历输入的字符串，将每个字符及其出现的次数存储到字典中。
+        if (count) {
+            [charCount setObject:[NSNumber numberWithInteger:([count integerValue] + 1)] forKey:charValue];
+        } else {
+            [charCount setObject:[NSNumber numberWithInteger:1] forKey:charValue];
+        }
+    }
+    // 再次遍历字符串，找到第一个在字典中出现次数为1的字符，返回其下标即可。
+    for (NSInteger i = 0; i < length; i++) {
+        unichar currentChar = [str characterAtIndex:i];
+        NSNumber *charValue = [NSNumber numberWithUnsignedShort:currentChar];
+        NSNumber *count = [charCount objectForKey:charValue];
+        if ([count integerValue] == 1) {
+            return [NSString stringWithFormat:@"%C", currentChar];
+        }
+    }
+    return nil;
+}
+```
+
 ###### 8: 查找两个子视图的共同父视图
 
 答：
@@ -1574,10 +1624,43 @@ def findMiddleNode(head):
    答：我最喜欢的 iOS 架构模式是MVC（Model-View-Controller）模式，它将应用程序的功能分为三个部分：模型（Model）、视图（View）和控制器（Controller）。这种模式可以有效地将应用程序的功能分离，使得程序的维护和开发更加容易，同时也可以提高程序的可扩展性和可维护性。
 
 4. 请说说如何使用协议和委托进行架构设计。
-   答：
+   答：使用协议和委托进行架构设计的基本思路是通过协议定义接口，然后在委托中实现具体的逻辑。
+
+   具体步骤如下：
+
+   1. 定义协议：协议定义了需要实现的方法，以及方法的参数和返回值类型。例如，可以定义一个协议来表示网络请求的逻辑，包括发起请求、获取响应等方法。
+   2. 声明委托：委托是遵循协议的对象，它实现了协议定义的方法，并对其进行具体的实现。例如，可以声明一个委托来处理网络请求的具体实现，包括向服务器发送请求、解析响应等操作。
+   3. 将委托设置为代理：在需要使用委托的地方，将委托设置为代理对象。例如，在一个视图控制器中，需要进行网络请求的操作，可以将实现了网络请求协议的对象设置为代理。
+   4. 调用委托方法：在需要执行协议方法的地方，通过代理对象调用委托的方法，以实现具体的业务逻辑。例如，在视图控制器中需要进行网络请求，就可以通过代理对象调用委托实现的网络请求方法。
+
+   这种架构设计方式的优点是，将业务逻辑与具体的实现分离，提高了代码的可读性和可维护性。同时，也方便了代码的复用，通过定义不同的协议和委托对象，可以实现多种不同的业务逻辑。
 
 5. 请说说怎样使用依赖注入提高代码可测试性。
-   答：
+   答：依赖注入（Dependency Injection）是一种设计模式，它的核心思想是让对象不再负责自己所依赖的对象的创建和管理，而是将这些依赖关系交给外部容器来管理。这样做的好处是，可以在不改变原有代码的前提下，提高代码的可测试性和可维护性。
+
+   使用依赖注入的基本步骤如下：
+
+   1.定义接口：定义一个接口，用于描述被依赖的对象。
+
+   2.实现类：实现被依赖的对象的接口。
+
+   3.依赖注入：在需要使用被依赖对象的类中，使用接口声明依赖，然后通过构造函数或属性注入的方式来注入依赖对象。
+
+   4.使用依赖对象：在需要使用被依赖对象的地方，通过接口来调用对象的方法。
+
+   使用依赖注入可以提高代码的可测试性，因为可以通过将被依赖对象替换成测试用例中的 Mock 对象来进行单元测试，而不用修改原有的代码。
+
+   此外，依赖注入还可以提高代码的可维护性，因为依赖关系被外部容器管理，而不是在代码中硬编码，所以当需要更改依赖关系时，只需要修改容器的配置文件，而不用修改代码。
+
+   最后，使用依赖注入需要注意以下几点：
+
+   1.使用接口来声明依赖关系，而不是使用具体的实现类。
+
+   2.将依赖关系的创建和管理交给外部容器。
+
+   3.在需要使用依赖对象的地方，通过接口来调用对象的方法，而不是直接调用实现类的方法。
+
+   4.使用构造函数或属性注入的方式来注入依赖对象，而不是在代码中硬编码依赖关系。
 
 6. 请说说怎样使用网络层封装，以提高代码复用性。
    答：网络层封装的目的是把网络请求的逻辑从应用的业务逻辑中分离出来，避免业务代码繁琐的网络请求细节。
@@ -1608,6 +1691,14 @@ def findMiddleNode(head):
 
 11. 请说说如何使用多线程技术优化 iOS 应用的性能
     答：
+
+12. 面向对象的几个设计原则？
+    答：1、单一职责原则(Single Responsibility Principle, SRP)：一个类或模块只负责完成一个功能或领域内的职责，不应该有多于的职责。这样可以保证类或模块的内聚性，同时也减小了类或模块之间的耦合性。
+    2、开放封闭原则(Open-Closed Principle, OCP)：软件实体(类、模块、函数等)应该是可以扩展的，但是不可以修改已有的代码。这样可以保证系统的稳定性，同时也减小了维护的难度。
+    3、里氏替换原则(Liskov Substitution Principle, LSP)：任何基类可以出现的地方，子类一定可以出现，而且替换为子类也不会产生任何错误或异常。这样可以保证类之间的继承关系是正确的，同时也保证了代码的可复用性和可维护性。
+    4、依赖倒置原则(Dependency Inversion Principle, DIP)：高层模块不应该依赖低层模块，两者应该通过抽象层进行交互；抽象不应该依赖细节，细节应该依赖抽象。这样可以保证系统的稳定性，同时也保证了代码的可扩展性和可维护性。
+    5、接口隔离原则(Interface Segregation Principle, ISP)：客户端不应该依赖它不需要的接口，一个类或模块不应该强制依赖另一个类或模块的接口，应该通过接口隔离来减小类之间的耦合度。这样可以保证系统的灵活性，同时也保证了代码的可扩展性和可维护性。
+    6、合成复用原则(Composite Reuse Principle, CRP)：尽量使用合成/聚合的方式，而不是使用继承的方式来复用代码。这样可以减小类之间的耦合度，同时也增加了代码的灵活性和可维护性。
 
 #### 性能优化问题
 
@@ -1837,6 +1928,39 @@ end
  12.将 Swift 标准库拷贝到包中（如果有swift）
  13.对包进行签名
  14.完成打包
+
+###### 7:内存的几大区域？各自的职能？
+
+答：内存通常被划分为以下几个区域：
+
+1. 栈区(Stack)：存储函数调用时的临时变量，函数的参数值等。其操作方式类似于数据结构中的栈。
+2. 堆区(Heap)：用于存放程序运行时动态申请的内存空间，通常由程序员手动申请和释放，管理方式较为灵活，需要手动管理内存的开辟和释放。
+3. 全局区(Global)：存放全局变量和静态变量，程序在整个运行期间都可访问。该区域的空间由编译器自动分配和释放。
+4. 常量区(Constant)：存放程序中的常量，如字符串常量、数字常量等。该区域的内容在程序运行期间不可被修改。
+5. 代码区(Code)：存放程序的代码部分，也称为只读区，通常存放编译后的目标代码，不可被修改。
+
+不同的内存区域有不同的职能：
+
+1. 栈区：用于存储函数调用时的临时变量，函数的参数值等。通常由编译器自动分配和释放，具有自动管理的特点，不需要手动管理。
+2. 堆区：用于存放程序运行时动态申请的内存空间，通常由程序员手动申请和释放，管理方式较为灵活，需要手动管理内存的开辟和释放。
+3. 全局区：存放全局变量和静态变量，程序在整个运行期间都可访问。该区域的空间由编译器自动分配和释放。
+4. 常量区：存放程序中的常量，如字符串常量、数字常量等。该区域的内容在程序运行期间不可被修改。
+5. 代码区：存放程序的代码部分，也称为只读区，通常存放编译后的目标代码，不可被修改。
+
+###### 8:什么是进程和线程？有什么区别？
+
+答：进程（Process）是操作系统中的基本概念，指正在运行的一个程序，是系统资源分配和调度的独立单位。每个进程都有自己独立的内存空间，包括代码、数据和堆栈等。不同进程之间的内存空间是互相独立的，无法直接访问。
+
+线程（Thread）是程序执行的最小单元，是进程中的一个实体，是CPU调度的基本单位。一个进程可以有多个线程，它们共享进程的地址空间和其他资源，如文件、套接字等。线程的调度是由操作系统内核完成的。
+
+区别：
+
+1. 调度：进程有自己独立的内存空间，而线程共享进程的内存空间，所以进程的调度是由操作系统完成的，线程的调度则是由线程库完成的，即由程序员自己控制线程的调度。
+2. 资源开销：进程的创建和销毁比线程要耗费更多的时间和资源，因为进程需要为每个进程分配独立的内存空间和其他系统资源，而线程则共享进程的资源，只需要为线程分配栈空间和一些管理信息即可。
+3. 通信和同步：由于线程共享进程的内存空间，因此线程之间的通信和同步比进程之间的通信和同步更加容易和高效。同时，由于进程之间的内存空间是独立的，因此进程之间的通信和同步需要使用一些IPC机制，如管道、消息队列、共享内存等。
+4. 并发性：由于线程共享进程的资源，因此多线程的并发性比多进程的并发性更高，可以更好地利用CPU资源。但是，由于线程之间共享进程的资源，因此需要注意线程之间的同步问题，避免出现资源竞争等问题。
+
+总之，进程和线程是操作系统中非常重要的概念，对于理解操作系统的工作原理和开发高性能的程序都非常有帮助。
 
 ###### 数据库索引的索引下推？
 
@@ -2198,6 +2322,7 @@ https://blog.csdn.net/MinggeQingchun/article/details/117471901
 Clang:
 
 ###### C 语言
+
 int a,b;
 a = 2;
 b = 10;
@@ -3309,7 +3434,7 @@ DispatchQueue.global().async {
 信号量的初始化方法：`DispatchSemaphore.init(value: Int)`，value表示允许访问资源的线程数量，当value为0时对访问资源的线程没有限制。
 信号量配套使用`wait()`函数与`signal()`函数控制访问资源。
 
-###### wait函数会阻塞当前线程直到信号量计数大于或等于1，当信号量大于或等于1时，将信号量计数-1, 然后执行后面的代码。signal()函数会将信号量计数+1
+wait函数会阻塞当前线程直到信号量计数大于或等于1，当信号量大于或等于1时，将信号量计数-1, 然后执行后面的代码。signal()函数会将信号量计数+1
 
 　　信号量是GCD同步的一种方式。前面介绍过的`DispatchWorkItemFlags.barrier`是对queue中的任务进行批量同步处理，sync函数是对queue中的任务单个同步处理，而DispatchSemaphore是对queue中的某个任务中的某部分（某段代码）同步处理。此时将`DispatchSemaphore.init(value: Int)`中的参数value传入1。
 
@@ -3626,6 +3751,15 @@ enum List{
 
 **问题6- Swift嵌套函数在哪存的什么地方** 
 答：Swift中的嵌套函数是存储在调用它的外部函数中的. 它们只能在外部函数的内部访问,并不能在外部函数外部访问.(嵌套函数只能在它所嵌套在的外部函数中被调用和使用,不能在外部函数外部被直接调用或使用. 外部函数必须先被调用才能使嵌套函数可用. 例如,如果有一个名为 outerFunction() 的外部函数和一个名为 nestedFunction() 的嵌套函数,那么在 outerFunction() 外部调用 nestedFunction() 是不允许的,但是在 outerFunction() 内部调用 nestedFunction() 是允许的。)
+
+##### 网络工程师
+
+重点是ipv6 Ipv6的ospf bgp 和mplsvpn 
+基于bgp成载的
+要知道什么是内部网关协议和外部网关协议
+Igp和egp 
+所以bgp分为ibgp和ebgp
+二次重签名 代码注入 加密方式  本地存储 (数据库 偏好设置) 是否越狱 等等 好多呀 这个安全搞起来可头大了 [皱眉]
 
 ##### 安卓
 

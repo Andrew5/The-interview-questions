@@ -2370,7 +2370,7 @@ NSLog(@"%d",yy);//10
   otool -L <file path>//查看静态库的库信息
   otool -L <file path>//查看可执行文件或动态库依赖的动态库
   otool -Lr <file path>//查看动态库的动态链接信息
-   man otool 查看更详细的用法
+  man otool 查看更详细的用法
   ```
 
 #### flutter 事件循环
@@ -2401,20 +2401,38 @@ Flutter 引擎负责渲染界面、处理输入事件、调度动画等。Dart �
 ###### Dart 是单线程还是多线程
 
 答：单线程
+Dart 在单线程中是以消息循环机制来运行的
+start app->Execute main() -> Microtask queue empty? ->NO ->Run next microtask 微任务队列 ->返回上一步 YES-> Event Queue empty?事件队列->NO -> Handle next event 返回上一步 YES-> App can exit
+
+###### 简述Dart语音特性
+
+在Dart中，一切都是对象，所有的对象都是继承自Object
+Dart是强类型语言，但可以用var或 dynamic来声明一个变量，Dart会自动推断其数据类型,dynamic类似c#
+没有赋初值的变量都会有默认值null
+Dart支持顶层方法，如main方法，可以在方法内部创建方法
+Dart支持顶层变量，也支持类变量或对象变量
+Dart没有public protected private等关键字，如果某个变量以下划线（_）开头，代表这个变量在库中是私有的
+
+###### Dart 中的级联操作符
+
+Dart 当中的 「..」意思是 「级联操作符」，为了方便配置而使用。「..」和「.」不同的是 调用「..」后返回的相当于是 this，而「.」返回的则是该方法返回的值 。
+
+###### Dart 的单线程模型是如何运行的？
+
+Dart 在单线程中是以消息循环机制来运行的，包含两个任务队列，一个是“微任务队列” microtask queue，另一个叫做“事件队列” event queue。
+当Flutter应用启动后，消息循环机制便启动了。
+按照先进先出的顺序逐个执行 微任务队列 中的任务，当所有 微任务队列 执行完后便开始执行 事件队列 中的任务，事件任务执行完毕后再去执行微任务，如此循环往复；
 
 ###### Stream feature 的区别
 
 答：Flutter 中 Stream 是一种异步事件的处理机制，它可以用来处理来自不同来源的事件，如网络请求、定时器、用户输入等。
-
 Stream 有两种不同的实现方式：
 
 - Single-subscription stream
 - Broadcast stream
 
 Single-subscription stream 也称为单订阅流，在这种情况下，一个流只能被监听一次，并且只有一个订阅者能够接收到事件。
-
 Broadcast stream 也称为广播流，在这种情况下，一个流可以被多次监听，并且多个订阅者都可以接收到事件。
-
 总结：
 
 - Single-subscription stream 只能被订阅一次，只能有一个订阅者接收事件
@@ -2425,9 +2443,7 @@ Broadcast stream 也称为广播流，在这种情况下，一个流可以被多
 ###### isolate有了解吗
 
 答：Flutter 中 isolate 是一种用于跨线程执行代码的机制。它可以在单独的线程中执行 Dart 代码，而不会影响主线程的性能。
-
 一个 isolate 拥有自己独立的内存空间，不会与其他 isolate 共享数据。这意味着在 isolate 中运行的代码是安全的，不会被其他 isolate 中的代码干扰。
-
 Flutter 中有两种方式来创建 isolate:
 
 - 使用 dart:isolate 库中的 Isolate.spawn() 方法
@@ -2435,14 +2451,570 @@ Flutter 中有两种方式来创建 isolate:
 
 isolate 主要用于处理计算密集型任务，如图像处理、大量数据的计算等，或是长时间的后台任务。使用 isolate 可以有效地提高应用程序的性能，并避免主线程的阻塞。
 
+###### 说一下Hot Reload，Hot Restart，热更新三者的区别和原理。
+
+**区别**
+
+修改了状态相关的代码则需要hot restart，否则只需要 hot reload即可
+
+**Hot Reload原理**
+
+Flutter 提供的两种编译模式中，**AOT** 是静态编译，即编译成设备可直接执行的二进制码；而 **JIT** 则是动态编译，即将 Dart 代码编译成中间代码（Script Snapshot），在运行时设备需要 Dart VM 解释执行。
+
+而热重载之所以只能在 Debug 模式下使用，是因为 Debug 模式下，Flutter 采用的是 JIT 动态编译（而 Release 模式下采用的是 AOT 静态编译）。JIT 编译器将 Dart 代码编译成可以运行在 Dart VM 上的 Dart Kernel，而 Dart Kernel 是可以动态更新的，这就实现了代码的实时更新功能，
+
+总体来说，完成热重载的可以分为扫描工程改动、增量编译、推送更新、代码合并、Widget 重建 5 个步骤。
+
+1. 工程改动。热重载模块会逐一扫描工程中的文件，检查是否有新增、删除或者改动，直到找到在上次编译之后，发生变化的 Dart 代码。
+2. 增量编译。热重载模块会将发生变化的 Dart 代码，通过编译转化为增量的 Dart Kernel 文件。
+3. 推送更新。热重载模块将增量的 Dart Kernel 文件通过 HTTP 端口，发送给正在移动设备上运行的 Dart VM。
+4. 代码合并。Dart VM 会将收到的增量 Dart Kernel 文件，与原有的 Dart Kernel 文件进行合并，然后重新加载新的Dart Kernel 文件。
+5. Widget 重建。在确认 Dart VM 资源加载成功后，Flutter 会将其 UI 线程重置，通知 Flutter Framework 重建 Widget。
+
+**Flutter 编译模式背后的技术**
+1、JIT，指的是即时编译或运行时编译，在 Debug 模式中使用，可以动态下发和执行代码，启动速度快，但执行性能受运行时编译影响：Dart Code -> flutter run--Debug -> Dart Kernel(Script Snapshot) -> Flutter Engine(Dart VM)
+2、AOT，指的是提前编译或运行前编译，在 Release 模式中使用，可以为特定的平台生成稳定的二进制代码，执行性能好、运行速度快，但每次执行均需提前编译，开发调试效率低：Dart Code -> flutter run--Release ->  Flutter Engine(Dart VM)<--Dart Kernel(Script Snapshot)
+可以看到，Flutter 提供的两种编译模式中，AOT 是静态编译，即编译成设备可直接执行的二进制码；而 JIT 则是动态编译，即将 Dart 代码编译成中间代码（Script Snapshot），在运行时设备需要 Dart VM 解释执行。
+而热重载之所以只能在 Debug 模式下使用，是因为 Debug 模式下，Flutter 采用的是 JIT 动态编译（而 Release 模式下采用的是 AOT 静态编译）。JIT 编译器将 Dart 代码编译成可以运行在 Dart VM 上的 Dart Kernel，而 Dart Kernel 是可以动态更新的，这就实现了代码的实时更新功能:Code(Flutter工程) -> Code(代码改动)->Kernel file(编译产物)->(Kernel file old、Kernel file new)Dart VM(接收更新) -> Dart VM(Kernel file)(Kernel 合并)->Widge重建
+完成热重载的可以分为**扫描工程改动、增量编译、推送更新、代码合并、Widget 重建** 5 个步骤
+
+1. **工程改动**。热重载模块会逐一扫描工程中的文件，检查是否有新增、删除或者改动，直到找到在上次编译之后，发生变化的 Dart 代码。
+2. **增量编译。**热重载模块会将发生变化的 Dart 代码，通过编译转化为增量的 Dart Kernel 文件。
+3. **推送更新**。热重载模块将增量的 Dart Kernel 文件通过 HTTP 端口，发送给正在移动设备上运行的 Dart VM。
+4. **代码合并**。Dart VM 会将收到的增量 Dart Kernel 文件，与原有的 Dart Kernel 文件进行合并，然后重新加载新的Dart Kernel 文件。
+5. **Widget 重建**。在确认 Dart VM 资源加载成功后，Flutter 会将其 UI 线程重置，通知 Flutter Framework 重建 Widget。
+
+比如，我们需要为一个视图栈很深的页面调整 UI 样式，若采用重新编译的方式，不仅需要漫长的全量编译时间，而为了恢复视图栈，也需要重复之前的多次点击交互，才能重新进入到这个页面查看改动效果。但如果是采用热重载的方式，不仅没有编译时间，而且页面的视图栈状态也得以保留，完成热重载之后马上就可以预览 UI 效果了，相当于进行了局部界面刷新。
+
+**不支持 Hot Reload 的场景**(热重载也有一定的局限性)
+
+- 代码出现编译错误；
+
+- Widget 状态无法兼容；
+
+- 全局变量和静态属性的更改；
+
+- main 方法里的更改；
+
+- initState 方法里的更改；
+
+- 枚举和泛类型更改
+
+  **代码出现编译错误**
+
+  当代码更改导致编译错误时，热重载会提示编译错误信息。比如下面的例子中，代码中漏写了一个反括号，在使用热重载时，编译器直接报错，如下所示。
+
+  ```dart
+  Initializing hot reload...
+  Syncing files to device iPhone X...
+  
+  Compiler message:
+  lib/main.dart:84:23: Error: Can't find ')' to match '('.
+      return MaterialApp(
+                        ^
+  Reloaded 1 of 462 libraries in 301ms.
+  ```
+
+  在这种情况下，只需更正上述代码中的错误，就可以继续使用热重载。
+
+  **Widget 状态无法兼容**
+
+  当代码更改会影响 Widget 的状态时，会使得热重载前后 Widget 所使用的数据不一致，即应用程序保留的状态与新的更改不兼容。
+
+  这时，热重载也是无法使用的。比如下面的代码中，我们将某个类的定义从 StatelessWidget 改为 StatefulWidget 时，热重载就会直接报错，如下所示。
+
+  ```dart
+  //改动前
+  class MyWidget extends StatelessWidget {
+    Widget build(BuildContext context) {
+      return GestureDetector(onTap: () => print('T'));
+    }
+  }
+  
+  //改动后
+  class MyWidget extends StatefulWidget {
+    @override
+    State<MyWidget> createState() => MyWidgetState();
+  }
+  class MyWidgetState extends State<MyWidget> { /*...*/ }
+  ```
+
+  当遇到这种情况时，我们需要重启应用，才能看到更新后的程序的运行效果。
+
+  **全局变量和静态属性的更改**
+
+  在 Flutter 中，全局变量和静态属性都被视为状态，在第一次运行应用程序时，会将它们的值设为初始化语句的执行结果，因此在热重载期间不会重新初始化。
+
+  比如下面的代码中，我们修改了一个静态 Text 数组的初始化元素。虽然热重载并不会报错，但由于静态变量并不会在热重载之后初始化，因此这个改变并不会产生效果，代码如下。
+
+  ```dart
+  //改动前
+  final sampleText = [
+    Text("T1"),
+    Text("T2"),
+    Text("T3"),
+    Text("T4"),
+  ];
+  
+  //改动后
+  final sampleText = [
+    Text("T1"),
+    Text("T2"),
+    Text("T3"),
+    Text("T10"),    //改动点
+  ];
+  ```
+
+  如果需要更改全局变量和静态属性的初始化语句，需要重启应用才能查看更改效果。
+
+  **main 方法里代码更改**
+
+  在 Flutter 中，由于热重载之后只会根据原来的根节点重新创建控件树，因此 main 函数的任何改动并不会在热重载后重新执行。所以，如果我们改动了 main 函数体内的代码，是无法通过热重载看到更新效果的。
+
+  ```dart
+  //更新前
+  class MyAPP extends StatelessWidget {
+  @override
+    Widget build(BuildContext context) {
+      return const Center(child: Text('Hello World', textDirection: TextDirection.ltr));
+    }
+  }
+  
+  void main() => runApp(new MyAPP());
+  
+  //更新后
+  void main() => runApp(const Center(child: Text('Hello, 2019', textDirection: TextDirection.ltr)));
+  ```
+
+  由于 main 函数并不会在热重载后重新执行，因此以上改动是无法通过热重载查看更新的。
+
+  **initState 方法里代码更改**
+
+  在热重载时，Flutter 会保存 Widget 的状态，然后重建 Widget。而 initState 方法是 Widget 状态的初始化方法，这个方法里的更改会与状态保存发生冲突，因此热重载后不会产生效果。
+
+  例如，在下面的例子中，我们将计数器的初始值由 10 改为 100，代码如下：
+
+  ```dart
+  //更改前
+  class _MyHomePageState extends State<MyHomePage> {
+    int _counter;
+    @override
+    void initState() {
+      _counter = 10;
+      super.initState();
+    }
+    ...
+  }
+  
+  //更改后
+  class _MyHomePageState extends State<MyHomePage> {
+    int _counter;
+    @override
+    void initState() {
+      _counter = 100;
+      super.initState();
+    }
+    ...
+  }
+  ```
+
+  由于这样的改动发生在 initState 方法中，因此无法通过热重载查看更新，我们需要重启应用，才能看到更改效果。
+
+  **枚举和泛型类型更改**
+
+  在 Flutter 中，枚举和泛型也被视为状态，因此对它们的修改也不支持热重载。
+
+  比如在下面的代码中，我们将一个枚举类型改为普通类，并为其增加了一个泛型参数，代码如下。
+
+  ```dart
+  //更改前
+  enum Color {
+    red,
+    green,
+    blue
+  }
+  
+  class C<U> {
+    U u;
+  }
+  
+  //更改后
+  class Color {
+    Color(this.r, this.g, this.b);
+    final int r;
+    final int g;
+    final int b;
+  }
+  
+  class C<U, V> {
+    U u;
+    V v;
+  }
+  ```
+
+由于涉及到状态的保存与恢复，涉及状态兼容与状态初始化的场景，热重载是无法支持的，如改动前后 Widget 状态无法兼容、全局变量与静态属性的更改、main 方法里的更改、initState 方法里的更改、枚举和泛型的更改等。
+可以发现，热重载提高了调试 UI 的效率，非常适合写界面样式这样需要反复查看修改效果的场景。但由于其状态保存的机制所限，热重载本身也有一些无法支持的边界。
+如果你在写业务逻辑的时候，不小心碰到了热重载无法支持的场景，也不需要进行漫长的重新编译加载等待，只要点击位于工程面板左下角的热重启（Hot Restart）按钮，就可以以秒级的速度进行代码重新编译以及程序重启了，同样也很快。
+
+###### Flutter是如何做到一套Dart代码可以编译运行在Android和iOS平台的？所以说具体的原理。
+
+- Skia绘制，实现跨平台应用层渲染一致性
+- Method Channel 机制
+
+为了解决调用原生系统底层能力以及相关代码库复用问题，Flutter 为开发者提供了一个轻量级的解决方案，即逻辑层的方法通道（Method Channel）机制。基于方法通道，我们可以将原生代码所拥有的能力，以接口形式暴露给 Dart，从而实现 Dart 代码与原生代码的交互，就像调用了一个普通的 Dart API 一样。
+
+<img src="https://p1-juejin.byteimg.com/tos-cn-i-k3u1fbpfcp/b8435483710f4fb0b07d08856cfd4d3c~tplv-k3u1fbpfcp-watermark.image" alt="image.png" style="zoom:33%;" />
+
+**Flutter定义了三种不同类型的Channel**
+
+- BasicMessageChannel：用于传递字符串和半结构化的信息。
+- MethodChannel：用于传递方法调用（method invocation）。
+- EventChannel: 用于数据流（event streams）的通信。
+
+Method Channel 是非线程安全的。原生代码在处理方法调用请求时，如果涉及到异步或非主线程切换，需要确保回调过程是在原生系统的 UI 线程（也就是 Android 和 iOS 的主线程）中执行的，否则应用可能会出现奇怪的 Bug，甚至是 Crash。
+
+###### Flutter不具备反射，如果要使用反射，你应该如何使用？说一下大概的思路。
+
+使用 Mirror
+
+**Mirror 的主要类型如下：**
+
+- ClassMirror：Dart 类的反射类型
+
+- InstanceMirror：Dart 实例的反射类型
+
+- ClosureMirror： 闭包的反射类型
+
+- DeclarationMirror：类属性的反射类型
+
+- IsolateMirror：Isolate 的反射类型
+
+- MethodMirror：Dart 方法（包括函数、构造函数、getter/setter 函数）的反射类型
+
+- `反射是一种计算机处理方式，是进程可以访问、检测和修改它本身状态或行为的一种能力`。换一个角度说，反射可以细分为自省——进程在运行时决定自身结构的能力，以及自我修正——进程在运行时改变自身的能力。Dart 的反射基于 mirror 概念，它指的是反映其他对象的对象，并且目前只支持自省，不支持自我修改。
+
+  **Mirror**
+
+  ```dart
+  main() {    
+    ClassMirror cm = reflectClass(ChildClass);
+    cm.instanceMembers.forEach((key, value) => print('$key >>> $value'));
+    ClassMirror simpleCM = reflectClass(Simple);
+    Simple simple = simpleCM.newInstance(Symbol.empty, ['hey']) as Simple;
+  }
+  class  {  Simple(a) {    
+    print('A new Simple: $a');        
+  }}
+  class  {  
+    int superField = 0;  
+    final int superFinalField = 1;  
+    int get superGetter => 2;  
+    set superSetter(x) { 
+      superField = x;           
+    }  
+    int superMethod(x) => 4;  
+    static int superStaticField = 5;  
+    static final int superStaticFinalField = 6;  
+    static const superStaticConstField = 7;  
+    static int get superStaticGetter => 8;  
+    static set superStaticSetter(x) { }  
+    static int superStaticMethod(x) => 10;}
+  class ChildClass extends SuperClass {  
+    int aField = 11;  final int aFinalField = 12;  
+    get aGetter => 13;  set aSetter(x) { 
+      aField = x; 
+    }  
+    int aMethod(x) => 15;  
+    static int staticField = 16;  
+    static final staticFinalField = 17;  
+    static const staticConstField = 18;  
+    static int get staticGetter => 19;  
+    static set staticSetter(x) { 
+      staticField = x; 
+    }  
+    static int staticMethod(x) => 21;
+  }
+  ```
+
+  控制面板输出为
+
+  ```shell
+  Symbol("==") >>> MethodMirror on '=='Symbol("hashCode") >>> MethodMirror on 'hashCode'Symbol("toString") >>> MethodMirror on 'toString'Symbol("noSuchMethod") >>> MethodMirror on 'noSuchMethod'Symbol("runtimeType") >>> MethodMirror on 'runtimeType'Symbol("superField") >>> Instance of '_SyntheticAccessor'Symbol("superField=") >>> Instance of '_SyntheticAccessor'Symbol("superFinalField") >>> Instance of '_SyntheticAccessor'Symbol("superGetter") >>> MethodMirror on 'superGetter'Symbol("superSetter=") >>> MethodMirror on 'superSetter='Symbol("superMethod") >>> MethodMirror on 'superMethod'Symbol("aField") >>> Instance of '_SyntheticAccessor'Symbol("aField=") >>> Instance of '_SyntheticAccessor'Symbol("aFinalField") >>> Instance of '_SyntheticAccessor'Symbol("aGetter") >>> MethodMirror on 'aGetter'Symbol("aSetter=") >>> MethodMirror on 'aSetter='Symbol("aMethod") >>> MethodMirror on 'aMethod'A new Simple: hey
+  ```
+
+  
+
+  **分类**
+
+  在官方 API 页面可以看到所有的 Mirror 类型：[dart:mirrors library](https://api.dartlang.org/stable/2.3.0/dart-mirrors/dart-mirrors-library.html)。Mirror 的主要类型如下
+
+  - ClassMirror：Dart 类的反射类型
+  - InstanceMirror：Dart 实例的反射类型
+  - ClosureMirror： 闭包的反射类型
+  - DeclarationMirror：类属性的反射类型
+  - IsolateMirror：Isolate 的反射类型
+  - MethodMirror：Dart 方法（包括函数、构造函数、getter/setter 函数）的反射类型
+
+  通过`dart:mirrors`包内顶层函数`reflecClass` 获得类的 “镜像” 的实例，该实例的`instanceMembers`属性如下
+
+  ```dart
+  MapSymbol, MethodMirror> get instanceMembers;
+  ```
+
+  由控制面板输出结果可以看到，对于普通字段（属性），除自身外还列出了以 “=” 结尾的 setter 字段，对于不提供 setter 的`final`字段则只出现一次。
+
+  使用`staticMembers`将列出所有的静态字段
+
+  ```dart
+  cm.staticMembers.forEach((key, value) => print('$key >>> $value'));
+  ```
+
+  输出如下
+
+  ```shell
+  Symbol("staticField") >>> Instance of '_SyntheticAccessor'Symbol("staticField=") >>> Instance of '_SyntheticAccessor'Symbol("staticFinalField") >>> Instance of '_SyntheticAccessor'Symbol("staticConstField") >>> Instance of '_SyntheticAccessor'Symbol("staticGetter") >>> MethodMirror on 'staticGetter'Symbol("staticSetter=") >>> MethodMirror on 'staticSetter='Symbol("staticMethod") >>> MethodMirror on 'staticMethod'
+  ```
+
+  可以发现父类静态成员没有出现在列表中，这是因为静态属性不会被继承、不能被`ChildClass`调用。
+
+  **Symbol**
+
+  `Symbol`表示使用 Dart 的 mirror API 反射得到的实例类型，位于`dart:core`包
+
+  ```dart
+  part of dart.core;
+  abstract class Symbol {  
+    static const Symbol unaryMinus = const Symbol("unary-");  
+    static const Symbol empty = const Symbol("");      
+    const factory Symbol(String name) = internal.Symbol;  
+    int get hashCode;    
+    bool operator ==(other);
+  }
+  ```
+
+  **源码**
+
+  通过 ClassMirror 的源码，可以大概看出 Dart 语言关于反射的设计思想以及对外提供的 API
+
+  ```dart
+  abstract class ClassMirror implements TypeMirror, ObjectMirror {  
+    ClassMirror get superclass;
+    List get superinterfaces; //接口列表  
+    bool get isAbstract;  
+    bool get isEnum;  
+    MapSymbol, DeclarationMirror> get declarations;   //不包含父类属性和方法  
+    MapSymbol, MethodMirror> get instanceMembers;  //实例属性  
+    MapSymbol, MethodMirror> get staticMembers;  //静态属性  
+    //如果S = A with B ,那么ClassMirror（S）.mixin 为 ClassMirror（B），否则返回本身  
+    ClassMirror get mixin;      /**   * 调用构造方法   * @param constructorName 构造方法名称（默认构造方法为空字符串，命名构造方法为其命名）   * @param positionalArguments 参数列表   */
+    InstanceMirror newInstance(Symbol constructorName, List positionalArguments,      [MapSymbol, dynamic> namedArguments]);  
+    bool operator ==(other);  
+    bool isSubclassOf(ClassMirror other);
+  }
+  ```
+
+  **影响**
+
+  在 Java 中，当开发者多次（10w 次以上）访问、修改某一属性时，使用反射的成本会比正常访问高很多，同时会让`private`修饰符失去作用。在 Dart 中，反射的影响主要在于，编译器使用`tree shaking`的过程确定应用真正运行时使用的代码，以减少进程的大小。但是使用反射将使`tree shaking`失效，因为任何代码都有可能被使用，由此严重影响应用的启动时间和内存占用。
+
+  解决👆一问题的有效方法是，通过代码生成执行反射。为了 “告知” 编译器使用反射的代码和方式，开发者可以使用`dart:reflectable`库，通过特定元数据注解反射代码。[reflectable](https://github.com/dart-lang/reflectable)
+
+  另一个影响在于最小化，其表示对下载到 Web 浏览器的源进程进行压缩的过程。在最小化过程中，源代码使用的名称在编译代码中被压缩成了短名称。这一过程会对反射带来不良影响，因为最小化之后，原来表示声明的名称的字符串，不再对应进程中的实际名称。
+
+  为了解决这一问题， Dart 反射使用 symbol 而非字符串作为 key，symbol 会被执行最小化的进程`minifier`识别并使用与标识符同样的压缩方式。这也是上面的输出中出现`Symbol(...)`的原因。开发者也可以通过 MirrorSystem 提供的`static String getName(Symbol symbol)`方法获得非最小化名称字符串。
+
+###### Flutter在不使用WebView和JS方案的情况下。如何做到热更新？说一下大概思路。
+
+- iOS 目前不支持，不能过审
+- 安卓，可以替换so文件来实现
+
+可以接入Tinker进行热更新，而且有Bugly做为补丁版本控制台，来上传下发补丁，统计数量。
+
+[Android端Flutter热更新](https://juejin.cn/post/6844904195665952776)
+
+###### 如何让Flutter 编译出来的APP的包大小尽可能的变小？
+
+**1. 移除无用代码和无用资源，压缩图片, 安卓里拆 App Bundle,**
+
+**2. Dart 编译产物做针对性优化**
+
+- 动态下发：剥离 Data 段及一切非必要产物，打包后动态下发。
+- 内置压缩：以二进制形态内置动态下发包。
+
+**3. Flutter 引擎编译产物优化**
+
+- 主要优化思路有升级 Bulild Tools 统一双编译参数，
+- 定制化编译裁剪引擎内部部分特定无用功能。
+
+**4. 机器码指令优化**
+
+精简机器码指令，Google 也回复称未来 Dart 与 OC 基本持平。
+
+###### 我们这个项目时一个综合系统的老项目，里面有Android，iOS，还有Web代码，是一个混合开发的项目，现在需要迁移到Flutter，加入你加入团队做这个项目的迁移工作，你觉得这个项目如何工程化、容器化以及架构演变应该从哪些维度思考？
+
+使用闲鱼团队开源的 flutter_boost
+
+- 可复用通用型混合方案
+- 支持更加复杂的混合模式，比如支持主页Tab这种情况
+- 无侵入性方案：不再依赖修改Flutter的方案
+- 支持通用页面生命周期
+- 统一明确的设计概念
+
+当一个Native的页面容器存在的时候，FlutteBoost保证一定会有一个Widget作为容器的内容。所以我们在理解和进行路由操作的时候都应该以Native的容器为准，Flutter Widget依赖于Native页面容器的状态。
+
+在FlutterBoost的概念里说到页面的时候，我们指的是Native容器和它所附属的Widget。所有页面路由操作，打开或者关闭页面，实际上都是对Native页面容器的直接操作。无论路由请求来自何方，最终都会转发给Native去实现路由操作。这也是接入FlutterBoost的时候需要实现Platform协议的原因。
+
+[用它开始Flutter混合开发—FlutterBoost](https://mp.weixin.qq.com/s?__biz=MzU4MDUxOTI5NA==&mid=2247484367&idx=1&sn=fcbc485f068dae5de9f68d52607ea08f&chksm=fd54d7deca235ec86249a9e3714ec18be8b2d6dc580cae19e4e5113533a6c5b44dfa5813c4c3&scene=0&subscene=131&clicktime=1551942425&ascene=7&devicetype=android-28&version=2700033b&nettype=ctnet&abtest_cookie=BAABAAoACwASABMABAAklx4AVpkeAMSZHgDWmR4AAAA%3D&lang=zh_CN&pass_ticket=1qvHqOsbLBHv3wwAcw577EHhNjg6EKXqTfnOiFbbbaw%3D&wx_header=1)
+
+###### APP启动速度以及页面加载速度一直是我们比较关心的一个问题，特别是混合开发项目，谈谈你对Flutter渲染优化有哪些见解？
+
+**1. 让 Flutter 中重建组件的个数尽量少**
+
+在实际开发过程中，如果将整个页面写在一个单独的 StatefulWidget 中，那么每次状态更新时都会导致很多不必要的 UI 重建。因此， 我们要学会拆解组件，使用良好设计模式和状态管理方案，当需要更新状态时将影响范围降到最小。
+
+**2. 构建组件时使用 const 关键词，可以抑制 widget 的重建**
+
+合理利用 const 关键词，可以在很大程度上优化应用的性能
+
+使用 const 也需要注意如下几点：
+
+- 当 const 修饰类的构造函数时，它要求该类的所有成员都必须是final的。
+- const 变量只能在定义的时候初始化。
+
+**3. Flutter实现的一些效果背后可能会使用 saveLayer() 这个代价很大的方法**
+
+如下这几个组件，底层都会触发 saveLayer() 的调用，同样也都会导致性能的损耗：
+
+- ShaderMask
+- ColorFilter
+- Chip，当 disabledColorAlpha != 0xff 的时候，会调用 saveLayer()。
+- Text，如果有 overflowShader，可能调用 saveLayer() ，
+
+**4. 官方也给了我们一些非常需要注意的优化点**：
+
+由于 Opacity 会使用屏幕外缓冲区直接使目标组件中不透明，因此能不用 Opacity Widget，就尽量不要用。有关将透明度直接应用于图像的示例，请参见 Transparent image，比使用 Opacity widget 更快，性能更好。
+
+要在图像中实现淡入淡出，请考虑使用 FadeInImage 小部件，该小部件使用 GPU 的片段着色器应用渐变不透明度。
+
+很多场景下，我们确实没必要直接使用 Opacity 改变透明度，如要作用于一个图片的时候可以直接使用透明的图片，或者直接使用 Container：Container(color: Color.fromRGBO(255, 0, 0, 0.5))
+
+Clipping 不会调用 saveLayer()（除非明确使用 Clip.antiAliasWithSaveLayer），因此这些操作没有 Opacity 那么耗时，但仍然很耗时，所以请谨慎使用。
+
+**5. 管理着色器编译垃圾**
+
+有时候，应用中的动画首次运行时会看起来非常卡顿，但是运行多次之后便可以正常运行，这可能就是由于着色器编译混乱导致的。
+
+在不同平台上，可以执行以下命令，使用 SkSL 预热功能构建应用程序：
+
+安卓
+
+```
+flutter build apk — bundle-sksl-path flutter_01.sksl.json
+```
+
+iOS
+
+```
+flutter build ios --bundle-sksl-path flutter_01.sksl.json
+```
+
+###### 谈谈Flutter的内存回收管理机制，以及你平时是怎么处理内存的？内存泄漏和内存溢出你是怎么解决的？
+
+**Dart的垃圾回收是分代的：年轻代和老年代**
+
+GC与Flutter engine建立联系，当engine检测到应用程序处于空闲状态且没有用户交互时，它会发出通知。这样就使得GC有了收集的窗口从而不影响性能。
+
+- 年轻代
+
+这个阶段旨在清除寿命较短的短暂对象，例如stateless widgets。虽然它是阻塞的，但它比老年代mark-sweep快得多，并且当与调度结合使用时，几乎不会影响程序的运行。
+
+要确定哪些对象是否可被回收，收集器将以root对象（例如堆栈变量）开始，并检查它们引用的对象。然后把引用的对象移动到另一半空间。在那里它检查这些移动的对象指向的内容，并移动这些引用的对象。如此反复，直到移动所有活动对象到另一半空间。始终没有被引用的对象将被回收。
+
+- 老年代(并行标记和并发扫描)
+
+当对象经历过一定次数的GC仍然存在，或者其生命周期较长(个人猜测类似于element和RenderObject这种需要多次复用，可变且创建比较耗费性能)，将其放入老年代区域中。老年代采用标记整理的方法来回收对象。
+
+这种GC技术有两个阶段：首先遍历对象图，并标记仍在使用的对象。在第二阶段期间，扫描整个存储器，并且回收未标记的任何对象。然后清除所有标志。
+
+[详情见Dart内存机制](http://www.helloted.com/flutter/2019/05/13/DartRuntime/)
+
+###### 你是如何把控混合项目开发时的生命周期（比如类似安卓的onCreate、onResume这种）和路由管理的？
+
+**生命周期**
+
+使用系统提供的回调
+
+```dart
+  SystemChannels.lifecycle.setMessageHandler((msg) async {
+    if (msg == AppLifecycleState.resumed.toString()) {
+    
+    } else if (msg == AppLifecycleState.inactive.toString()) {
+      
+    } else if (msg == AppLifecycleState.paused.toString()) {
+      
+    } else if (msg == AppLifecycleState.detached.toString()) {
+      
+    }
+    return '';
+  });
+```
+
+或者自己在安卓端使用 MethodChannel，通知Flutter生命周期的变化
+
+**路由管理：**
+
+在原生页面切换到 Flutter 页面时，我们通常会将 Flutter 容器封装成一个独立的 ViewController（iOS 端）或 Activity（Android 端），在为其设置好 Flutter 容器的页面初始化路由（即根视图）后，原生的代码就可以按照打开一个普通的原生页面的方式来打开 Flutter 页面了。
+
+而如果我们想在 Flutter 页面跳转到原生页面，则需要同时处理好打开新的原生页面，以及关闭自身回退到老的原生页面两种场景。在这两种场景下，我们都需要利用方法通道来注册相应的处理方法，从而在原生代码宿主实现新页面的打开和 Flutter 容器的关闭。
+
+需要注意的是，与纯 Flutter 应用不同，原生应用混编 Flutter 由于涉及到原生页面与 Flutter 页面之间切换，因此导航栈内可能会出现多个 Flutter 容器的情况，即多个 Flutter 实例。Flutter 实例的初始化成本非常高昂，每启动一个 Flutter 实例，就会创建一套新的渲染机制，即 Flutter Engine，以及底层的 Isolate。而这些实例之间的内存是不互相共享的，会带来较大的系统资源消耗。
+
+为了解决混编工程中 Flutter 多实例的问题，业界有两种解决方案：
+
+以今日头条为代表的修改 Flutter Engine 源码，使多 FlutterView 实例对应的多 Flutter Engine 能够在底层共享 Isolate；
+
+以闲鱼为代表的共享 FlutterView，即由原生层驱动 Flutter 层渲染内容的方案。
+
+不过，目前这两种解决方案都不够完美。所以，在 Flutter 官方支持多实例单引擎之前，应该尽量使用Flutter去开发一些闭环业务，减少原生页面与Flutter页面之间的交互，尽量避免Flutter页面跳转到原生页面，原生页面又启动一个新的Flutter实例的情况，并且保证应用内不要出现多个 Flutter 容器实例的情况。
+
+###### Flutter for web 和Flutter1.9推出的Flutter Web有何本质上的区别？
+
+**Web的生产质量支持**。
+
+**特别关注三种应用程序场景：**
+
+- 渐进式Web应用程序（PWA），将Web的访问范围与桌面应用程序的功能结合在一起。
+- 单页应用程序（SPA），一次加载并与Internet服务之间进行数据传输。
+- 将现有的Flutter移动应用程序带到Web上，从而为两种体验启用共享代码。
+
+在过去的几个月中，在为稳定发布Web支持做准备的同时，我们在性能优化方面取得了许多进展，添加了一个新的由WebAssembly构建的由CanvasKit驱动的渲染引擎。Flutter Plasma是由社区成员Felix Blaschke构建的演示，展示了使用Dart和Flutter构建复杂的Web图形体验的简便性，这些体验也可以在桌面或移动设备上本地运行。
+
+###### 谈谈你认为的Flutter Web应该如何改进？哪些内容可以改造之后可以用于平时的Web开发。谈谈你的改造方案。
+
+- 性能和兼容性问题
+- 插件太多不支持，生态没起来
+- 对SEO优化支持不好
+
+###### 谈谈如何打造低延迟的视频直播？为什么这样用？
+
+**使用WebRTC**
+
+它使用UDP来进行媒体推流，而不需要创建离散的媒体段，这为所有客户端提供了始终如一的低延时
+
+WebRTC还提供了一个实时双向数据通道，可用于发送和接收数据流。这种双向数据技术给在线流现在如何能成为一种交互式的体验提供了很多有趣的可能性。
+
+###### **RTS服务部署于CDN节点**
+
+RTS服务进行服务与节点双重升级，同时针对全链路直播指标进行监控和针对性优化，以及通过智能调度系统以及网络拥塞、抗弱网优化、缓冲策略等进行一系列底层核心技术优化，实现RTP over UDP更好地对抗公网的丢包，使得播放器上收到的流质量相对RTMP over TCP更加稳定，这样一来，播放器就可以降低buffer，不用像以前那样设置6s 的buffer来对抗抖动，现在只需要设置1秒左右就OK了，整体延时可以控制在1-1.5S左右。
+
+[如何构建低延时的直播体验，让互动更实时？](https://developer.aliyun.com/article/765188)
+
 ###### Stateless Widget和Stateful Widget区别
 
 答：Flutter 中有两种类型的 Widget：StatelessWidget 和 StatefulWidget。
 
 StatelessWidget 是不可变的，它的状态不会改变。当 StatelessWidget 的父 Widget 的状态发生变化时，Flutter 会重新构建该 Widget。
-
 StatefulWidget 是可变的，它的状态可以改变。当 StatefulWidget 的状态发生变化时，Flutter 只会对该 Widget 进行部分重绘。
-
 总结：
 
 - StatelessWidget 是不可变的，状态不会改变，在父widget状态改变时会被重构。
@@ -2511,6 +3083,27 @@ State是Flutter中的状态管理器。它维护着一些可变的数据，并�
 
 Context是Flutter中的上下文管理器。它为widget提供了额外的信息，比如主题、语言等。
 
+###### flutter 中Widget的分类
+
+1、组合类：StatelessWidget和StatefulWidget
+2、代理类：inheritedwidget、ParentDataWidget
+inheritedwidget一般用于状态共享，如Theme 、Localizations 、 MediaQuery 等，都是通过它实现共享状态，这样我们可以通过 context 去获取共享的状态，比如 ThemeData theme = Theme.of(context);
+3、绘制类：RenderObjectWidget
+RenderObject 的布局相关方法调用顺序是 ： layout -> performResize -> performLayout -> markNeedsP4、
+
+###### mixin extends implement 之间的关系?
+
+继承（关键字 extends）、混入 mixins （关键字 with）、接口实现（关键字 implements）。
+这三者可以同时存在，前后顺序是extends -> mixins -> implements。
+Flutter中的继承是单继承，子类重写超类的方法要用@Override，子类调用超类的方法要用super。
+在Flutter中，Mixins是一种在多个类层次结构中复用类代码的方法。mixins的对象是类，mixins绝不是继承，也不是接口，而是一种全新的特性，可以mixins多个类，mixins的使用需要满足一定条件。
+
+使用mixins的条件：
+mixins类只能继承自object
+mixins类不能有构造函数
+一个类可以mixins多个mixins类
+可以mixins多个类，不破坏Flutter的单继承aint
+
 ###### Widget和element和RenderObject之间的关系
 
 答：Widget, Element 和 RenderObject是Flutter中用于构建UI的三种不同类型的对象。
@@ -2551,7 +3144,7 @@ Flutter 框架也提供了一些高级的并发抽象,如 `Future` 和 `Stream`,
 
 Future 是一种异步编程模型，可以在将来的某个时刻获取一个值，或者是在某个操作完成后获取结果。
 
-Stream 是一种异步数据源，可以在将来的某个时刻发出一系列事件。
+Stream 是一种异步数据源，可以在将来的某个时刻发出一系列事件,Stream 的创建可以使用 Stream.fromFuture，也可以使用 StreamController 来创建和控制。
 
 举个例子:
 
@@ -2628,11 +3221,11 @@ Flutter还提供了一个Dart虚拟机，可以在多个平台上运行Dart代�
 
 ###### 3、flutter 三棵树以及联系?
 
-答：Flutter中的三棵树指的是框架的三个层次：widget树，元素树和渲染树。
+答：Flutter中的三棵树指的是框架的三个层次：widget树，Elements元素树和RenderObjects渲染树。
 
-- widget树定义了用户界面的结构和布局，由widget组成，它是用户界面的基本构建块。
-- 元素树是从widget树创建的，表示用户界面的有状态元素。元素是框架创建的运行时对象，用于管理widget树中widget的状态和布局。
-- 渲染树是从元素树创建的，表示用户界面的视觉元素。渲染树由框架使用，将用户界面绘制到屏幕上。
+- widget树定义了用户界面的结构和布局，由widget组成，它是用户界面的基本构建块，创建是非常轻量的，在页面刷新的过程中随时会重建
+- 元素树是从widget树创建的，是分离 WidgetTree 和真正的渲染对象的中间层，表示用户界面的有状态元素。元素是框架创建的运行时对象，用于管理widget树中widget的状态和布局，存放上下文信息，通过它来遍历视图树，支撑UI结构。
+- RenderObject渲染树是从元素树创建的，表示用户界面的视觉元素。渲染树由框架使用，保存了元素的大小，布局等信息，实例化一个 RenderObject 是非常耗能的，将用户界面绘制到屏幕上。
 
 这三棵树是密切相关的，并协同工作来在Flutter中构建和呈现用户界面。widget树用于定义用户界面的结构和布局，元素树用于管理状态和布局，渲染树用于将用户界面呈现给用户。
 
@@ -2700,7 +3293,7 @@ Dart中主要是使用Future和Isolate来实现多任务并行， Future是用�
 
 答：`await` 是 Dart 中的一个关键字，用于等待一个异步操作的完成。
 
-在使用 `await` 等待一个异步操作时，程序会暂停当前函数的执行，等待该操作完成。完成后，程序会继续执行当前函数。
+在使用 `await` 等待一个异步操作时，程序会暂停当前函数的执行，等待该操作完成。完成后，程序会继续执行当前函数。(await for一般用在直到Stream什么时候完成，并且必须等待传递完成之后才能使用，不然就会一直阻塞)
 
 它可以用来等待一个Future 对象的返回值,可以在异步操作的回调函数中使用.
 
@@ -2861,6 +3454,11 @@ AnimatedBuilder 是一种更灵活的动画建造器，它允许我们在动画�
 BLoC 组件通常由两个部分组成：事件处理器和状态流。事件处理器处理来自用户界面的事件，并将它们转换为状态更改。状态流是一个可观察对象，它将状态更改发布到用户界面以进行更新。
 
 BLoC 模式可以使用第三方库如 bloc 或 flutter_bloc来实现。 使用这些库可以减少手写代码，并使实现变得更简单。
+
+###### 15、Dart是值传递还是引用传递?
+
+答：dart是值传递，每次调用函数，传递过去的都是对象的内存地址，而不是这个对象的复制。
+16、
 
 #### Swift知识
 

@@ -54,9 +54,20 @@ atomic  和  nonatomic  用来决定编译器生成的  getter  和  setter  是
 atomic 修饰的属性是绝对安全的吗？为什么？
 不是，所谓的安全只是局限于 Setter、Getter 的访问器方法而言的，你对它做 Release 的操作是不会受影响的。这个时候就容易崩溃了。
 
+###### 2:代理为啥要用weak修饰？
+
+答：weak:指明该对象并不负责保持delegate这个对象，delegate这个对象的销毁由外部控制
+strong：该对象强引用delegate，外界不能销毁delegate对象，会导致循环引用(Retain Cycles)
+
 ###### 2: 被 weak 修饰的对象在被释放的时候会发生什么？是如何实现的？
 
-答：`weak` 修饰的对象是弱引用，意味着它不会对所引用的对象的生命周期造成影响。如果所引用的对象没有被其他任何强引用所引用，那么在垃圾回收的时候它就会被回收。
+答：`weak`修饰的对象是弱引用，意味着它不会对所引用的对象的生命周期造成影响。如果所引用的对象没有被其他任何强引用所引用，那么在垃圾回收的时候它就会被回收。
+
+当对象被创建时，会在其内存中的 isa 指针中存储一个指向其类对象的引用，用于支持对象的动态类型。
+
+assgin 在引用计数=0 的时候,不会自动置为nil .
+weak 会自动置为nil，所以代理用weak合适，需要释放  
+strong引用计数+1，weak关键字修饰的对象,对象的引用计数不会+1
 
 Runtime维护了一个weak表，用于存储指向某个对象的所有weak指针。weak表其实是一个hash（哈希）表，Key是所指对象的地址，Value是weak指针的地址（这个地址的值是所指对象指针的地址，就是地址的地址）集合(当weak指针的数量小于等于4时,是数组, 超过时,会变成hash表)。
 
@@ -271,7 +282,7 @@ UIApplicationHandleEventQueue() 会把 IOHIDEvent 处理并包装成 UIEvent 进
 didChangeValueForKey:内部会调用observer的observeValueForKeyPath:ofObject:change:context:方法。
 Apple使用了isa混写（isa-swizzling）来实现KVO。
 当观察对象A时，KVO机制动态创建一个新的名为NSKVONotifying_A的新类，该类集成自对象A的本类，且KVO为NSKVONotifying_A重写观察属性的setter方法，setter方法会负责在调用元setter方法之前和之后，通知所有观察对象属性值的更改情况。（备注：isa混写（isa-swizzling）isa:is a kind of ; swizzling: 混合，搅合）
-		1、NSKVONotifying_A类剖析：在这个过程，被观察对象的isa指针从指向原来的A类，被KVO机制修改为指向系统创建的自NSKVONotifying_A类，来实现当前类属性值改变的监听；所以当我们从应用层面来看，完全没有意识到有新的类出现，这是系统“隐瞒”了对KVO的底层想实现过程，让我们误以为还是原来的类。但是此时如果我们创建一个新的名为“NSKVONotifying_A”的类，就会发现系统运行到注册KVO的那段代码时程序就崩溃，因为系统在注册监听的时候动态创建了名为NSKVONotifying_A的中间类，并指向这个中间类了（isa指针的作用：每个对象都有isa指针，指向该对象的类，他告诉Runtime系统这个对象的类是什么。所以对象注册为观察者时，isa指针指向新子类，那么这个被观察的对象就神奇地变成新子类的对象（或实例）了。）因而在该对象上对setter的调用就会调用已重写的setter，从而激活键值通知机制。
+		1、NSKVONotifying_A类剖析：在这个过程，被观察对象的isa指针从指向原来的A类，被KVO机制修改为指向系统创建的自NSKVONotifying_A类，来实现当前类属性值改变的监听；所以当我们从应用层面来看，完全没有意识到有新的类出现，这是系统“隐瞒”了对KVO的底层实现过程，让我们误以为还是原来的类。但是此时如果我们创建一个新的名为“NSKVONotifying_A”的类，就会发现系统运行到注册KVO的那段代码时程序就崩溃，因为系统在注册监听的时候动态创建了名为NSKVONotifying_A的中间类，并指向这个中间类了（isa指针的作用：每个对象都有isa指针，指向该对象的类，他告诉Runtime系统这个对象的类是什么。所以对象注册为观察者时，isa指针指向新子类，那么这个被观察的对象就神奇地变成新子类的对象（或实例）了。）因而在该对象上对setter的调用就会调用已重写的setter，从而激活键值通知机制。
 		2、子类setter方法剖析：KVO的键值观察通知依赖与NSObject的两个方法：willChangeValueForKey:和didChangeValueForKey:，
 在存取数值的前后分别调用2个方法：被观察属性发生改变之前，willChangeValueForkey:被调用，通知系统该keyPath的属性值即将变更；
 		当改变发生后，didChangeValueForkey:被调用，通知系统该keyPath的属性值已经变更；
@@ -285,7 +296,8 @@ Apple使用了isa混写（isa-swizzling）来实现KVO。
 		2.若无，则继续查找<property>，get<property>，set<property>等方法，若有就使用；
 		3.若查询不到以上任何存取方法，则尝试直接访问实例变量<property>， 
 		4.若连该成员变量也访问不到，则会在下面方法中抛出异常。之所以提供这两个方法，就是让你在因访问不到该属性而程序即将崩掉前，供你重写，在内做些处理，防止程序直接崩掉。
-		5.利用KVC即键值编码来给对象的私有属性赋值。6.如何手动触发KVO，valueForUndefinedKey:和setValue:forUndefinedKey:方法。
+		5.利用KVC即键值编码来给对象的私有属性赋值。
+		6.如何手动触发KVO，valueForUndefinedKey:和setValue:forUndefinedKey:方法。
 
 ###### 7: 讲一下对KVC和KVO的了解，KVC是否会调用setter方法？
 
@@ -882,29 +894,22 @@ d. 从引用计数表中删除废弃对象的地址为键值的记录
 
 ###### 14:简述下Objective-C中调用方法的过程
 
-答：Objective-C是动态语言，每个方法在运行时会被动态转为消息发送，即：objc_msgSend(receiver, selector)，整个过程介绍如下：
+答：在 iOS 中，每个 Objective-C 对象都有一个 isa 指针，它指向该对象的类对象（class object）。isa 指针是 Objective-C 运行时的一部分，用于实现对象的方法调用。
 
-objc在向一个对象发送消息时，runtime库会根据对象的isa指针找到该对象实际所属的类
+当调用一个方法时，Objective-C 运行时会通过对象的 isa 指针找到对应的类对象，并在类对象的方法列表中查找匹配的方法名。如果找到了匹配的方法，就执行该方法的实现。如果没有找到匹配的方法，则会按照继承链的顺序向上查找，直到找到合适的方法或者到达根类（NSObject）为止。
 
-然后在该类中的方法列表以及其父类方法列表中寻找方法运行
+isa 指针的作用是在对象中指示其类的位置，从而在运行时能够根据类对象找到正确的方法实现。这样，每个对象都可以根据其 isa 指针调用属于自己的类的方法，而不需要将方法的实现存储在每个对象实例中，从而节省了内存空间。
 
-如果，在最顶层的父类（一般也就NSObject）中依然找不到相应的方法时，程序在运行时会挂掉并抛出异常unrecognized selector sent to XXX
+需要注意的是，isa 指针是指向类对象的指针，而不是实例对象。每个类对象都包含了类的方法列表，即方法名和对应的实现。当创建一个对象时，对象会通过 isa 指针指向其类对象，并继承类对象的方法列表。这也是 Objective-C 的动态性的体现，因为方法的调用是在运行时根据对象的 isa 指针来确定的，而不是在编译时静态决定的。
+// https://juejin.cn/post/6844904134286524429
+// https://juejin.cn/post/6844904133074370573
 
-但是在这之前，objc的运行时会给出三次拯救程序崩溃的机会(+ (void)load 方法：这是在类加载到内存中时调用的方法，可以用来执行一些预处理工作。(void)initialize 方法：这是在类的第一次调用之前调用的方法，可以用来初始化类的状态。(void)dealloc 方法：这是在对象被销毁之前调用的方法，可以用来做一些清理工作。)，这三次拯救程序奔溃的说明见问题《什么时候会报unrecognized selector的异常》中的说明。
+`SEL`和`IMP`的关系就可以解释为：`SEL`就相当于书本的⽬录标题，`IMP`就是书本的⻚码，`函数`就是具体页码对应的内容。在他们各自的Dispatch表中SEL所对应的IMP是不同的，IMP是一个函数指针，而虽然每一个SEL对应的是一个方法的名称，但考虑到效率，SEL本身是一个整型，编译器会另外生成一张SEL和方法名称对应的表。有了这样的结构，objc就可以实现多态了。
+// https://juejin.cn/post/7046307527830536200
 
-首先，程序中会调用某个对象的方法，使用如下的语法：
-
-[object method];
-
-然后，Objective-C 的运行时系统会检查 object 所属的类，看是否有名为 method 的方法。
-
-如果类中存在该方法，运行时系统就会调用该方法，并将执行流程交给方法体。
-
-如果类中不存在该方法，运行时系统就会尝试在父类中寻找该方法。如果父类中也不存在该方法，运行时系统就会继续在父类的父类中查找，直到找到该方法或者查找到了根类为止。
-
-如果在整个继承链中都找不到该方法，程序就会抛出一个异常，终止程序的执行。
-
-如果找到了该方法，方法体就会被执行，直到方法执行完毕为止。
+// ISA指针是`Class`类型，Class`类型其实是`objc_class`，继承于`objc_object`,其包含superclass、instance_size、methodLists、cache、protocols`
+// Isa 通过objc_object::initIsa ，看到isa_t newisa(0); 其实是一个联合体**union** isa_t ，是一个结构体ISA_BITFIELD宏定义，在`arm64`下的结构。前面的是参数名、后面的是所占位数，总数加起来是64位。
+// 从对象获取类其实也是object_getClass **return** obj->getIsa() ，对象的`isa`指向其类，类对象的`isa`指向其元类，元类的`isa`指向根元类，所有元类的`isa`都指向根元类
 
 ###### 15:Objc为什么要设计消息发送机制，直接调函数有什么缺点？
 
@@ -913,6 +918,35 @@ objc在向一个对象发送消息时，runtime库会根据对象的isa指针找
  消息动态解析可以在运行时动态的去添加实现调用，更加灵活
  消息转发，则是更加灵活的去更改方法的调用对象，以及方法的执行。
  总的来说我感觉消息发送机制是运行时的基础。更加灵活方便吧
+
+###### 16：项目有什么亮点，如果是优化，怎么优化的，提升了多少百分比，你用的比较深刻的设计模式说一下，达到了什么效果
+
+1. 项目亮点：我们的iOS项目在以下几个方面有了显著的亮点。
+
+- 创新的功能：我们在项目中实现了一些独特的、前瞻性的功能，满足了用户的特定需求，并带来了良好的用户体验。例如，我们可能引入了基于机器学习的推荐算法，提供了个性化的内容推荐；或者我们开发了自定义的UI组件，提供了独特的界面交互方式。
+- 跨平台兼容性：我们的项目可能同时支持iOS和其他平台，如Android、Web等，实现了一致的用户体验和功能，并在不同平台之间实现了数据同步和互通。这样可以扩展我们的用户群体，提升了项目的市场竞争力。
+- 安全和隐私保护：我们在项目中注重了用户数据的安全和隐私保护，采取了合适的加密、权限控制、数据脱敏等措施，保障用户的个人信息安全，遵循了相关法律法规和行业标准。
+
+1. 优化措施：我们对项目进行了持续的优化，以提升性能、用户体验和代码质量。以下是一些可能的优化措施。
+
+- 性能优化：我们使用性能分析工具（如Instruments）进行性能检测和优化，针对性能瓶颈进行了优化，例如减少界面渲染时间、优化网络请求、减少CPU和内存占用等。通过这些优化，我们显著提升了应用的响应速度和流畅性。
+- 内存管理优化：我们使用了ARC（自动引用计数）来管理内存，并通过合理的内存管理策略，如使用轻量级的数据结构、避免循环引用、及时释放不再使用的对象等，减少了内存泄漏和内存占用，提升了应用的稳定性和性能。
+- 代码结构和设计模式优化：我们优化了代码结构，遵循了设计模式的原则，使代码更加清晰、可维护和可扩展。例如，我们可能使用了MVC、MVVM、VIPER等设计模式，将业务逻辑、界面展示和数据管理进行了分离，提高了代码的可测试性和可复用性。
+
+1. 优化效果：通过以上的优化措施，我们成功地提升了项目的性能、用户体验和代码质量。具
+
+###### 17：从一个本地url，生成uiimage ，再到显示到uiimageview 上，说一下大概过程
+
+1. 获取本地图片URL：首先需要获取本地图片的URL，可以通过Bundle.main.url(forResource:withExtension:)方法获取应用资源包中的图片URL，或者通过FileManager方法获取沙盒中的图片URL。
+2. 生成UIImage：使用UIImage的初始化方法，例如UIImage(contentsOfFile:)、UIImage(data:)等，传入本地图片的URL，生成UIImage对象。这一步并不会立即解码图片，而只是将图片数据加载到内存中，不会占用过多内存。
+3. 显示UIImage：将生成的UIImage对象设置给UIImageView的image属性，从而将图片显示在UIImageView上。可以通过直接设置image属性，或者使用UIImageView的setImage方法来设置UIImage。
+4. 生成UIImage并显示在UIImageView上并不会立即解码图片，而是在UIImageView显示时才会进行解码和渲染。当一个图片被加载到内存中后，需要进行解码操作将图片的二进制数据转换为可显示的图像数据，这个过程通常是由 CPU 完成的。CPU 会对图片的像素数据进行解压、解码、颜色空间转换等操作，将图片数据转换为可以被 GPU 渲染的格式。一般情况下，GPU 主要负责将解码后的图像数据进行渲染、合成和显示操作，而不涉及图片解码的过程。GPU 在渲染图像时可以利用硬件加速特性，提供高性能的图像处理和渲染能力。这样可以避免一次性加载过多图片导致内存占用过高的问题，提升应用的性能和响应速度。但是一旦图片显示后，生成的UIImage对象会占用内存，如果图片较大或者图片较多，可能会导致内存占用过高，需要合理管理内存，避免内存泄漏和性能下降。
+
+###### 18：App卡顿监控怎么做
+
+1. 监控 RunLoop：iOS的UI操作通常在主线程的 RunLoop 中进行，通过监听 RunLoop 的状态可以检测到是否发生了卡顿。可以使用 CADisplayLink 或者 CFRunLoopObserver 监听 RunLoop 的状态，例如 kCFRunLoopBeforeSources 和 kCFRunLoopBeforeWaiting 等状态，当超过某个阈值时，即可判定为卡顿。
+2. 自定义监控：可以通过在合适的地方插入自定义监控代码来检测卡顿。例如，在主线程的耗时操作前后插入时间戳，并通过计算时间差来判断是否发生卡顿。可以通过 dispatch_after、dispatch_group_notify 等方式来延迟执行监控代码，以避免监控代码本身对性能造成影响。
+3. 在检测到卡顿后，可以根据具体情况进行优化。例如，将耗时的操作放到后台线程，避免在主线程阻塞；使用异步加载图片；避免过多的 UI 更新操作；优化循环嵌套和递归等。优化效果可以通过性能测试和用户反馈来评估，根据优化前后的性能指标，计算百分比来判断优化的效果。
 
 #### 网络&多线程问题
 
@@ -1310,7 +1344,7 @@ NSData *data = [dataStr dataUsingEncoding:NSUTF8StringEncoding];
  		同时设置一个视图的背景颜色很有可能渲染树显示的是颜色属性A，而此时的视图的逻辑树储存的是颜色属性B；    		 同时操作一个视图的属性结构比如线程A循环便利所有的子视图，而此时线程B中将某个子视图直接删除，这样不仅会导致A的错乱，还可能导致应用程序的崩溃；
 ​		将大部分视图绘制方法属性改为了线程安全，但仍强烈建议将UI操作放在主线程，原因是是属性图存在读写，不可能全部改写为线程安全。
 ​		UI更新一定要在主线程实现的原因：
-​		系统默认是没有加锁的，多个线程被允许同时访问更新同一个UI控件，也就是所谓的Ui访问时候系统当中的UI控件都不是安全的，在多线程中变得不可控；
+​		系统默认是没有加锁的，多个线程被允许同时访问更新同一个UI控件，也就是所谓的UI访问时候系统当中的UI控件都不是安全的，在多线程中变得不可控；
 ​		规定只能在主线程访问UI，相当于是一种UI访问加的锁；
 ​		多线程更多的是算力，而非不断的进行UI的更新，保证处理UI的事件都在串行队列中进行。
 
@@ -1387,6 +1421,18 @@ AFNetworking 框架的优点：
 ###### 5: 堆、栈和队列
 
 答：
+
+栈和堆都是内存中的存储区域，主要区别如下：
+
+- 栈是一种先进后出的数据结构，是程序自动分配内存的一种方式。在函数调用时，所有的参数以及函数内的局部变量都存储在栈内存中。当函数调用结束时，这些变量的内存空间会自动被释放。
+- 堆是另一种内存分配方式，它是由程序员手动分配的内存空间。在堆中分配的内存空间可以通过指针进行访问，不过需要程序员手动释放，否则可能会导致内存泄露。
+
+队列是一种先进先出的数据结构，常见的队列有两种：
+
+- 普通队列：从队尾插入元素，从队首删除元素，保证先进先出的原则。
+- 双端队列：既可以从队尾插入元素，也可以从队首删除元素。
+
+队列常用于实现缓存、消息队列、任务队列等场景。
 
 ###### 6: 输入一棵二叉树的根结点，求该树的深度？
 
@@ -1490,6 +1536,36 @@ AFNetworking 框架的优点：
 
 答：
 
+1. 确定两个子视图 A 和 B。
+
+2. 获取视图 A 的所有父视图，并将其存储在数组中。
+
+3. 从视图 B 开始向上遍历父视图，判断是否存在与数组相同的父视图，如果存在则返回该父视图。
+
+4. 如果 B 遍历到根视图（即 UIWindow），仍未找到相同的父视图，则表示 A 和 B 不在同一个视图层级中，无共同父视图。
+
+   ```swift
+   func findCommonSuperview(viewA: UIView, viewB: UIView) -> UIView? {
+       var superviewsOfA = [UIView]()
+       var commonSuperview: UIView?
+       var view: UIView? = viewA.superview
+       while view != nil {
+           superviewsOfA.append(view!)
+           view = view!.superview
+       }
+       view = viewB.superview
+       while view != nil && commonSuperview == nil {
+           if superviewsOfA.contains(view!) {
+               commonSuperview = view!
+           }
+           view = view!.superview
+       }
+       return commonSuperview
+   }
+   ```
+
+   
+
 ###### 9: 无序数组中的中位数(快排思想)
 
 答：
@@ -1535,6 +1611,33 @@ def findMiddleNode(head):
         fast = fast.next.next
     return slow
 ```
+
+###### 12、贪心， 动态规划， 递归
+
+答：一道经典的 iOS 贪心算法面试题是“买卖股票的最佳时机”。题目描述如下：
+
+给定一个数组，其中第 i 个元素表示一支给定股票第 i 天的价格。你可以尽可能地完成更多的交易（多次买卖一支股票）。设计一个算法来计算你所能获取的最大利润。注意你不能同时持有多支股票（即：你必须在再次购买之前出售之前的股票）。
+
+例如，给定一个数组 prices = [7, 1, 5, 3, 6, 4]，则最大利润为 7，即在第 2 天买入，第 5 天卖出。
+
+贪心算法思路是：尽可能低价买入，高价卖出，最终获得最大收益。因此，我们可以在遍历数组时，如果当前股票价格比前一天高，就可以计算出差价，并累加到最终的利润中。
+
+以下是参考答案的示例代码：
+
+```
+- (NSInteger)maxProfit:(NSArray<NSNumber *> *)prices {
+    NSInteger profit = 0;
+    for (NSInteger i = 1; i < prices.count; i++) {
+        NSInteger diff = prices[i].integerValue - prices[i-1].integerValue;
+        if (diff > 0) {
+            profit += diff;
+        }
+    }
+    return profit;
+}
+```
+
+该算法的时间复杂度为 O(n)，空间复杂度为 O(1)。
 
 #### 架构设计问题
 
@@ -1962,6 +2065,73 @@ end
 
 总之，进程和线程是操作系统中非常重要的概念，对于理解操作系统的工作原理和开发高性能的程序都非常有帮助。
 
+###### 如何设计一套统计所有方法耗时的方案？(热修复技术原理)
+
+答：使用方法交换（Method Swizzling）技术：在 Objective-C 中，可以通过方法交换技术在运行时替换类中的方法实现，从而实现方法耗时的统计。可以在应用的基类或者通过 AOP（面向切面编程）的方式，使用方法交换将所有方法的调用都替换为自定义的方法实现，在这个自定义的方法实现中，记录方法的调用开始时间和结束时间，计算耗时，并进行统计。
+		使用代码块（Block）进行耗时统计：在 Objective-C 和 Swift 中，可以使用代码块（Block）来定义方法的执行代码，从而可以在代码块中记录方法的调用开始时间和结束时间，计算耗时，并进行统计。可以通过宏定义、函数封装、方法调用等方式，将耗时统计的代码块嵌入到需要统计的方法中。
+		使用 runtime 进行热修复是一种在运行时动态修改代码的技术，可以用于修复应用中的bug、添加新功能、更新资源等。
+		在 iOS 中使用 runtime 进行热修复主要涉及以下步骤：
+
+1. 动态加载修复代码：使用 Objective-C 的 runtime API，例如 `NSClassFromString`、`dlopen`、`dlsym` 等，或者 Swift 的动态加载方式，例如 `Bundle.load`、`NSClassFromString` 等，来动态加载修复代码。修复代码可以是编译好的动态链接库（dylib）或者在运行时生成的代码。
+
+2. 替换修复的方法实现：通过 runtime API，使用 `method_exchangeImplementations`、`class_replaceMethod` 等方法，将修复代码中的方法实现替换掉原有的方法实现，从而实现修复效果。需要注意的是，替换方法时要确保新的方法签名与原有的方法签名保持一致，避免引发崩溃或者不稳定的情况。
+
+3. 处理修复代码和原有代码的兼容性：由于热修复涉及到动态修改代码，可能会导致修复代码与原有代码之间的兼容性问题，例如修复代码依赖的类或者方法在原有代码中已经被移除或者发生了变化。因此，在进行热修复时需要仔细考虑修复代码和原有代码的兼容性，确保修复代码在运行时不会引发崩溃或者不稳定的情况。
+
+4. 安全性和稳定性考虑：使用 runtime 进行热修复涉及到对应用的运行时环境进行修改，因此需要特别注意安全性和稳定性考虑。例如，要确保修复代码来源可靠，不会引入恶意代码；要避免对系统库和框架进行修改，以免影响应用的稳定性；要进行充分的测试和验证，确保修复效果符合预期，并且不会引发新的问题。
+
+5. 使用 `dlopen` 和 `dlsym` 是一种在 iOS 中使用 runtime 进行热修复的方式，可以加载并调用动态链接库中的函数。下面是一个简单的示例，展示如何使用 `dlopen` 和 `dlsym` 技术实现一个简单的热修复计划：
+
+   1. 创建修复代码的动态链接库（dylib）：可以使用 C、C++ 或者 Objective-C 等编程语言编写修复代码，并编译成动态链接库，例如 `libFix.dylib`。
+
+   2. 将修复代码的动态链接库（dylib）集成到 iOS 项目中：将 `libFix.dylib` 添加到 iOS 项目的工程目录中，并在项目的 Build Phases 中添加到 Link Binary With Libraries 阶段，以便在编译时将其链接到应用中。
+
+   3. 使用 `dlopen` 和 `dlsym` 加载并调用修复代码：在应用的运行时，使用 `dlopen` 函数加载 `libFix.dylib` 动态链接库，并使用 `dlsym` 函数获取修复代码中的函数指针，从而调用修复代码中的函数。
+
+      ```objective-c
+      // 加载修复代码的动态链接库
+      void* handle = dlopen("libFix.dylib", RTLD_NOW);
+      
+      if (handle != NULL) {
+          // 获取修复代码中的函数指针
+          void (*fixMethod)(void) = dlsym(handle, "fixMethod");
+      if (fixMethod != NULL) {
+          // 调用修复代码中的函数
+          fixMethod();
+      } else {
+          NSLog(@"Failed to get symbol from libFix.dylib");
+      }
+      	// 关闭动态链接库
+      	dlclose(handle);
+      } else {
+          NSLog(@"Failed to load libFix.dylib");
+      }
+      // 上面的示例代码通过 dlopen 函数加载名为 libFix.dylib 的动态链接库，然后使用 dlsym 函数获取其中名为 fixMethod 的函数指针，并调用修复代码中的函数。需要注意的是，这只是一个简单的示例，实际的热修复计划可能涉及到更复杂的逻辑和处理，包括对修复代码和原有代码的兼容性考虑、安全性和稳定性的验证、错误处理等。
+      // 客户端应用修复配置：客户端通过修复函数的函数指针，调用修复函数，执行修复逻辑。修复函数可以在运行时修改 App 的内存和状态，实现对客户端 bug 的修复。修复的逻辑和参数可以通过服务器下发的配置信息来控制和调整。
+      // 导出修复函数：在动态链接库中，需要通过 __attribute__((visibility("default"))) 或者其他方式，将修复函数（即修复代码的入口点）导出，以便在运行时可以通过动态链接库的名称和修复函数的名称进行动态加载和调用
+      ```
+
+举例：假设有一个 iOS 应用中的某个类 `MyViewController`，其中的一个方法 `buggyMethod` 存在一个 bug，导致应用崩溃。我们可以通过以下步骤来使用 `libFix.dylib` 进行修复：
+
+1. 创建修复代码：我们可以创建一个修复代码的二进制文件，例如 `fix.dylib`，其中包含修复 `buggyMethod` 的代码。修复代码可以使用 Objective-C 或者 C/C++ 编写，具体的实现根据 bug 的具体情况而定。
+2. 定义修复配置：我们可以定义一个修复配置，包括修复代码的入口函数名称、修复的目标函数或者类、修复的参数和返回值等信息。例如，我们可以创建一个 JSON 配置文件，如 `fix_config.json`，其中包含以下内容：
+
+```json
+{
+  "entry_function": "fixBuggyMethod",
+  "target_class": "MyViewController",
+  "target_method": "buggyMethod",
+  "params": [],
+  "return_value": ""
+}
+```
+
+其中，`entry_function` 指定修复代码的入口函数名称，`target_class` 指定修复的目标类，`target_method` 指定修复的目标方法，`params` 指定修复方法的参数，`return_value` 指定修复方法的返回值。
+
+1. 服务器下发修复配置：将修复代码 `fix.dylib` 和修复配置 `fix_config.json` 上传到服务器，并在服务器端准备好修复配置，包括将修复代码和修复配置存储在服务器端，并根据需要下发给客户端。
+2. 客户端获取修复配置：客户端在启动时或者定期向服务器请求修复配置，获取最新的修复代码和修复配置，例如通过 HTTP 请求从服务器端下载 `fix.dylib` 和 `fix_config.json`。
+3. 客户端加载修复代码：客户端使用 `dlopen` 函数加载 `fix.dylib`，将修复代码作为动态链接库加载到 App 的内存中，并获取修复函数的函数指针。
+
 ###### 数据库索引的索引下推？
 
 答：索引下推是一种数据库优化技术，在数据库执行SQL语句时，会自动评估是否可以使用索引代替全表扫描来完成查询，从而提高查询效率。
@@ -1971,7 +2141,6 @@ end
 1. 创建表：
 
 ```sqlite
-sqlCopy code
 CREATE TABLE users (
     id INT PRIMARY KEY AUTO_INCREMENT,
     name VARCHAR(255),
@@ -1983,14 +2152,12 @@ CREATE TABLE users (
 1. 创建索引：
 
 ```sqlite
-scssCopy code
 CREATE INDEX idx_users_age ON users(age);
 ```
 
 1. 插入数据：
 
 ```sqlite
-scssCopy code
 INSERT INTO users(name, age, created_at) VALUES('John', 25, NOW());
 INSERT INTO users(name, age, created_at) VALUES('Jane', 30, NOW());
 ```
@@ -1998,14 +2165,12 @@ INSERT INTO users(name, age, created_at) VALUES('Jane', 30, NOW());
 1. 执行查询语句：
 
 ```sqlite
-sqlCopy code
 EXPLAIN SELECT * FROM users WHERE age > 27;
 ```
 
 1. 查询语句的执行计划中，如果使用了索引，则可以看到"Using index"的字样，说明索引下推成功。
 
 ```sqlite
-sqlCopy code
 +----+-------------+-------+-------+---------------+---------+---------+-------+------+-------------+
 | id | select_type | table | type  | possible_keys | key     | key_len | ref   | rows | Extra       |
 +----+-------------+-------+-------+---------------+---------+---------+-------+------+-------------+
@@ -2047,7 +2212,7 @@ sqlCopy code
  1.重写和重载分别是什么，区别是什么
  2.hashMap的底层远离
 
-######  3.创建线程的几个方法是什么，区别是什么？
+######  创建线程的几个方法是什么，区别是什么？
 
   答：iOS中创建线程的几种方法有：NSThread、pthread、NSOperation、GCD。
 
@@ -2061,7 +2226,6 @@ sqlCopy code
 - NSThread：
 
 ```objective-c
-objectivecCopy code
 NSThread *thread = [[NSThread alloc] initWithTarget:self selector:@selector(run) object:nil];
 [thread start];
 
@@ -2073,7 +2237,6 @@ NSThread *thread = [[NSThread alloc] initWithTarget:self selector:@selector(run)
 - pthread：
 
 ```objective-c
-cppCopy code
 pthread_t thread;
 pthread_create(&thread, NULL, run, NULL);
 pthread_join(thread, NULL);
@@ -2087,7 +2250,6 @@ void *run(void *param) {
 - NSOperation：
 
 ```objective-c
-objectivecCopy code
 NSOperationQueue *queue = [[NSOperationQueue alloc] init];
 NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget:self selector:@selector(run) object:nil];
 [queue addOperation:operation];
@@ -2100,12 +2262,13 @@ NSInvocationOperation *operation = [[NSInvocationOperation alloc] initWithTarget
 - GCD：
 
 ```objective-c
-cCopy code
 dispatch_queue_t queue = dispatch_queue_create("com.test.queue", NULL);
 dispatch_async(queue, ^{
     NSLog(@"GCD");
 });
 ```
+
+
 
  4.linux命令中用什么打开文件， 有几种
  5.vi命令中用什么搜索
@@ -2404,7 +2567,7 @@ Flutter 引擎负责渲染界面、处理输入事件、调度动画等。Dart �
 Dart 在单线程中是以消息循环机制来运行的
 start app->Execute main() -> Microtask queue empty? ->NO ->Run next microtask 微任务队列 ->返回上一步 YES-> Event Queue empty?事件队列->NO -> Handle next event 返回上一步 YES-> App can exit
 
-###### 简述Dart语音特性
+###### 简述Dart语言特性
 
 在Dart中，一切都是对象，所有的对象都是继承自Object
 Dart是强类型语言，但可以用var或 dynamic来声明一个变量，Dart会自动推断其数据类型,dynamic类似c#
@@ -2456,6 +2619,11 @@ isolate 主要用于处理计算密集型任务，如图像处理、大量数据
 **区别**
 
 修改了状态相关的代码则需要hot restart，否则只需要 hot reload即可
+1、冷启动：从0开始启动，非常慢
+2、热重载：非0开始启动，主要是执行build过程
+3、热重启：重新运行app
+
+多态：父类引用指向子类对象
 
 **Hot Reload原理**
 
@@ -2936,6 +3104,16 @@ GC与Flutter engine建立联系，当engine检测到应用程序处于空闲状�
 
 这种GC技术有两个阶段：首先遍历对象图，并标记仍在使用的对象。在第二阶段期间，扫描整个存储器，并且回收未标记的任何对象。然后清除所有标志。
 
+###### Dart内存机制
+
+答：Dart 是一种现代化的编程语言，用于构建跨平台的应用程序，特别是移动应用和前端应用。Dart 内存机制是 Dart 运行时处理内存分配、管理和回收的方式。下面是关于 Dart 内存机制的一些简要介绍：
+
+1. 内存分配：Dart 使用堆(heap)和栈(stack)两种方式进行内存分配。堆是用于存储对象的内存区域，需要手动分配和释放，通常用于存储较大的对象或者长时间生存的对象。栈是一种自动分配和释放内存的方式，用于存储较小的对象或者短时间生存的对象。在 Dart 中，基本数据类型（如数字、布尔值等）和对象引用会被分配到栈上，而对象实例会被分配到堆上。
+2. 内存管理：Dart 使用基于垃圾回收的内存管理机制，通过垃圾回收器（garbage collector）自动回收不再使用的对象内存，以避免内存泄漏和内存溢出。Dart 的垃圾回收器采用了分代垃圾回收（generational garbage collection）策略，将内存分为新生代和老年代两个区域，分别使用不同的垃圾回收算法，以优化性能和内存使用。
+3. 内存释放：Dart 的内存释放由垃圾回收器负责，自动回收不再使用的对象内存。在 Dart 中，当对象不再被引用时，垃圾回收器会自动将其标记为垃圾对象，并在合适的时机回收其内存。垃圾回收器会根据对象的生命周期和内存使用情况，选择合适的时机进行垃圾回收，以最大限度地减少应用程序的内存占用。
+4. 内存管理优化：Dart 提供了一些内存管理优化的特性，例如对象池（Object Pool）和复制式对象分配（Copy-on-Write Allocation）等，用于优化内存分配和对象复制的性能。对象池允许开发者手动管理一些常用对象的内存，以避免频繁的对象创建和销毁操作，从而提高性能。复制式对象分配则可以延迟对象的复制操作，从而减少对象复制的开销。
+5. 内存安全：Dart 是一门强类型语言，具有内置的类型检查和空安全特性，可以帮助开发者在编译时和运行时检测和防止内存相关的错误，例如空引用、类型不匹配等。Dart 还提供了
+
 [详情见Dart内存机制](http://www.helloted.com/flutter/2019/05/13/DartRuntime/)
 
 ###### 你是如何把控混合项目开发时的生命周期（比如类似安卓的onCreate、onResume这种）和路由管理的？
@@ -3031,21 +3209,23 @@ StatefulWidget 是可变的，它的状态可以改变。当 StatefulWidget 的�
 
 答：
 
-- createState: 创建并返回 State 对象
+- createState: 创建并返回 State 对象(当创建类的新实例时，将调用构造函数。可以使用 `this` 关键字来初始化实例变量。)
 
-- initState: 初始化 State 对象，在每次 build 方法之前调用
+- initState: 初始化 State 对象，在每次 build 方法之前调用(可以执行初始化操作，例如为变量赋初始值、订阅流等。)
 
 - didChangeDependencies: 当 State 对象依赖变化时调用
 
 - build: 绘制 Widget
 
-- didUpdateWidget: 当 Widget 的配置变化时调用
+- didUpdateWidget: 当 Widget 的配置变化时调用(可以根据新的 `widget` 对象更新组件的状态。)
 
-- dispose: 释放资源
+- dispose: 释放资源(可以执行一些清理操作，例如取消流订阅、释放资源等。)
 
 - createState: 当第一次构建时调用，返回一个新的 State 对象
 
 - initState: 当第一次构建完成后调用，可以在这里进行一些初始化工作
+
+- `setState`：当调用 `setState` 方法时，将触发重建 `State` 对象。在这个方法中，可以更新状态，并通知框架更新 UI。
 
 - didChangeDependencies: 当 State 对象所依赖的 InheritedWidget 发生变化时调用
 
@@ -3227,7 +3407,7 @@ Flutter还提供了一个Dart虚拟机，可以在多个平台上运行Dart代�
 - 元素树是从widget树创建的，是分离 WidgetTree 和真正的渲染对象的中间层，表示用户界面的有状态元素。元素是框架创建的运行时对象，用于管理widget树中widget的状态和布局，存放上下文信息，通过它来遍历视图树，支撑UI结构。
 - RenderObject渲染树是从元素树创建的，表示用户界面的视觉元素。渲染树由框架使用，保存了元素的大小，布局等信息，实例化一个 RenderObject 是非常耗能的，将用户界面绘制到屏幕上。
 
-这三棵树是密切相关的，并协同工作来在Flutter中构建和呈现用户界面。widget树用于定义用户界面的结构和布局，元素树用于管理状态和布局，渲染树用于将用户界面呈现给用户。
+这三棵树是密切相关的，并协同工作来在Flutter中构建和呈现用户界面。widget树用于定义用户界面的结构和布局，元素树用于管理状态和布局，渲染树用于将用户界面呈现给用户。render才是真正的控件，布局也是根据render树来的，widget只是配置树，setstate是widget变化后，对应的element也变化，才会标记成dirty。
 
 ###### 4、封装一个组件的方式?
 
@@ -3735,7 +3915,7 @@ extension AnyList {
 
 懒加载, 当属性要使用的时候, 才去完成初始化
 
-###### 一个类型表示选项，可以同时表示有几个选项选中（类似 UIViewAnimationOptions ），用什么类型表示
+一个类型表示选项，可以同时表示有几个选项选中（类似 UIViewAnimationOptions ），用什么类型表示
 
 需要实现OptionSet, 一般使用 struct 实现. 由于 OptionSet 要求有一个不可失败的init(rawValue:) 构造器, 而 枚举无法做到这一点(枚举的原始值构造器是可失败的, 而且有些组合值, 是没办法用一个枚举值表示的)
 
